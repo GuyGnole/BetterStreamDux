@@ -39,7 +39,7 @@ impl Registry {
     pub fn new() -> Self {
         Self::from(vec![
             Box::new(spotify::Spotify::start()) as Box<dyn Module>,
-            Box::new(discord::Discord),
+            Box::new(discord::Discord::start()),
             Box::new(shell::Shell),
         ])
     }

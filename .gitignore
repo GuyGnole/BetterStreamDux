@@ -1,1 +1,6 @@
 /target
+
+# Safety net: Discord credentials and tokens live in ~/.config and ~/.local/state,
+# never in this repo.
+discord.toml
+discord-token.json

@@ -28,6 +28,7 @@ long_press_ms = 500   # how long a key must be held to count as a long press
 #
 # Values: deck:clock, deck:page_number, deck:brightness
 #         spotify:status, title, artist, album, volume, cover
+#         discord:status, muted, deafened, channel
 #
 # Action (needs `module`):
 #   module      = "spotify" | "discord" | "shell" | "deck"
@@ -82,12 +83,14 @@ display = "spotify:title"
 label = "Spotify"
 color = "#191414"
 
+# Push-to-talk: unmuted only while held. Green while the mic is live.
 [[button]]
 key = 5
 module = "discord"
 while_press = { press = "unmute", release = "mute" }
 label = "PTT"
 color = "#5865F2"
+color_by = { value = "discord:muted", colors = { false = "#3BA55D" } }
 
 [[button]]
 key = 6
@@ -115,11 +118,58 @@ short_press = "open_folder settings"
 label = "Settings"
 color = "#444444"
 
+# ---------- Page 2: Discord + misc ----------
+
+[[button]]
+page = 2
+key = 0
+module = "shell"
+short_press = "notify-send 'BetterStreamDux' 'short press'"
+long_press = "notify-send 'BetterStreamDux' 'long press'"
+label = "Notify"
+color = "#444444"
+
 [[button]]
 page = 2
 key = 4
 display = "deck:clock"
 color = "#222222"
+
+# Red while muted / deafened.
+[[button]]
+page = 2
+key = 5
+module = "discord"
+short_press = "toggle_mute"
+label = "Mute"
+color = "#5865F2"
+color_by = { value = "discord:muted", colors = { true = "#ED4245" } }
+
+[[button]]
+page = 2
+key = 6
+module = "discord"
+short_press = "toggle_deafen"
+label = "Deafen"
+color = "#5865F2"
+color_by = { value = "discord:deafened", colors = { true = "#ED4245" } }
+
+# Current voice channel; press to leave it.
+[[button]]
+page = 2
+key = 7
+module = "discord"
+short_press = "leave_channel"
+display = "discord:channel"
+label = "No voice"
+color = "#2B2D31"
+
+# Shows "connected", "authorizing" or "disconnected": handy during setup.
+[[button]]
+page = 2
+key = 9
+display = "discord:status"
+color = "#2B2D31"
 
 # ---------- Navigation bar (bottom row, repeated on each page) ----------
 

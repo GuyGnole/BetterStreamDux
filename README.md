@@ -51,11 +51,35 @@ mixed triggers, missing folder, typos...) are reported at startup.
 | Module    | Actions | Values | Status |
 |-----------|---------|--------|--------|
 | `spotify` | `play_pause`, `play`, `pause`, `next`, `previous`, `stop`, `volume_up`, `volume_down`, `seek_forward`, `seek_back` | `status`, `title`, `artist`, `album`, `volume`, `cover` | working (MPRIS, no account needed) |
-| `discord` | `mute`, `unmute`, `toggle_mute`, `toggle_deafen` | | not implemented |
+| `discord` | `mute`, `unmute`, `toggle_mute`, `deafen`, `undeafen`, `toggle_deafen`, `join_channel ID`, `leave_channel` | `status`, `muted`, `deafened`, `channel` | working (needs the setup below) |
 | `shell`   | any command line | | working |
 | `deck`    | `next_page`, `previous_page`, `go_to_page N`, `open_folder NAME`, `back`, `brightness_up`, `brightness_down` | `clock`, `page_number`, `brightness` | built-in |
 
 Spotify shuffle/repeat are not supported: the Linux app ignores them over MPRIS.
+
+## Discord setup (once)
+
+The Discord module talks to the Discord app on your computer (official local RPC).
+Discord requires your own (free) Discord application for this:
+
+1. Go to <https://discord.com/developers/applications>, click **New Application**,
+   name it e.g. `BetterStreamDux`.
+2. Open **OAuth2** in the left menu:
+   - copy the **Client ID**;
+   - click **Reset Secret** and copy the **Client Secret**;
+   - under **Redirects**, add `http://localhost` and **Save Changes**.
+3. Create `~/.config/betterstreamdux/discord.toml` (keep it private, never commit it):
+   ```toml
+   client_id = "your client id"
+   client_secret = "your client secret"
+   ```
+   then `chmod 600 ~/.config/betterstreamdux/discord.toml`.
+4. Start BetterStreamDux with Discord open. Discord shows an approval popup: click
+   **Authorize**. The login is saved in `~/.local/state/betterstreamdux/discord-token.json`
+   and renewed automatically; delete that file to force a new approval.
+
+To get a channel ID for `join_channel ID`: Discord settings → Advanced → enable
+**Developer Mode**, then right-click a voice channel → **Copy Channel ID**.
 
 ## Project layout
 
@@ -73,7 +97,7 @@ src/
     mod.rs         Module trait + registry
     paths.rs       per-user directories (cache)
     spotify.rs     one file per application
-    discord.rs
+    discord/       mod.rs (actions, values), ipc.rs (local socket), auth.rs (login)
     shell.rs
 config.toml        your key bindings
 assets/fonts/      bundled font (DejaVu Sans Bold, license next to it)
