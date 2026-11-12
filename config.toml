@@ -7,40 +7,51 @@
 
 brightness = 60
 
-# Each [[button]] binds one key to one module action.
+# How long (ms) a key must be held to count as a long press.
+long_press_ms = 500
+
+# Each [[button]] binds one key to one module.
 #   key    : which key (0-14)
 #   module : "spotify", "discord" or "shell"
-#   action : what the module should do (see each module's file in src/modules/)
 #   color  : optional background color, "#RRGGBB"
 #   icon   : optional image path (png/jpg), takes priority over color
+#
+# Then pick triggers (action names: see each module's file in src/modules/):
+#   short_press = "..."                               released before long_press_ms
+#   long_press  = "..."                               held for long_press_ms
+#   while_press = { press = "...", release = "..." }  push-to-talk style, cannot be mixed
+#
+# A key with only short_press fires instantly on press (no long press to wait for).
 
 [[button]]
 key = 0
 module = "spotify"
-action = "previous"
+short_press = "previous"
 color = "#1DB954"
 
 [[button]]
 key = 1
 module = "spotify"
-action = "play_pause"
+short_press = "play_pause"
+long_press = "stop"
 color = "#1DB954"
 
 [[button]]
 key = 2
 module = "spotify"
-action = "next"
+short_press = "next"
 color = "#1DB954"
 
 [[button]]
 key = 5
 module = "discord"
-action = "toggle_mute"
+while_press = { press = "unmute", release = "mute" }
 color = "#5865F2"
 
-# The shell module runs any command: action is the command line.
+# The shell module runs any command: the action is the command line.
 [[button]]
 key = 14
 module = "shell"
-action = "notify-send 'BetterStreamDux' 'Hello from the Stream Deck'"
+short_press = "notify-send 'BetterStreamDux' 'short press'"
+long_press = "notify-send 'BetterStreamDux' 'long press'"
 color = "#444444"

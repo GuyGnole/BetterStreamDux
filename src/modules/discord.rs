@@ -1,6 +1,6 @@
 //! Discord control. NOT IMPLEMENTED YET.
 //!
-//! Planned actions: `toggle_mute`, `toggle_deafen`.
+//! Planned actions: `mute`, `unmute` (push-to-talk with `while_press`), `toggle_mute`, `toggle_deafen`.
 //!
 //! Possible approaches (to decide):
 //!   - Discord RPC over its local IPC socket (`$XDG_RUNTIME_DIR/discord-ipc-0`).

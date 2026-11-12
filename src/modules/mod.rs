@@ -28,12 +28,17 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Every real module. Add new ones here.
     pub fn new() -> Self {
-        let all: Vec<Box<dyn Module>> = vec![
-            Box::new(spotify::Spotify),
+        Self::from(vec![
+            Box::new(spotify::Spotify) as Box<dyn Module>,
             Box::new(discord::Discord),
             Box::new(shell::Shell),
-        ];
+        ])
+    }
+
+    /// A registry with only the given modules (used by tests).
+    pub fn from(all: Vec<Box<dyn Module>>) -> Self {
         let modules = all.into_iter().map(|m| (m.name(), m)).collect();
         Self { modules }
     }

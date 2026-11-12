@@ -1,6 +1,7 @@
 //! Everything that talks to the Stream Deck hardware lives here.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use elgato_streamdeck::{DeviceStateReader, DeviceStateUpdate, StreamDeck, info::Kind};
@@ -53,9 +54,9 @@ impl Deck {
         Ok(())
     }
 
-    /// Blocks until something happens on the deck, then returns the events (press, release...).
-    pub fn wait_for_events(&self) -> Result<Vec<DeviceStateUpdate>> {
-        Ok(self.reader.read(None)?)
+    /// Waits up to `timeout` for key events (press, release...). Empty if nothing happened.
+    pub fn read_events(&self, timeout: Duration) -> Result<Vec<DeviceStateUpdate>> {
+        Ok(self.reader.read(Some(timeout))?)
     }
 }
 
