@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::builtin::{self, DeckAction};
-use crate::config::{Button, Config};
+use crate::config::{Button, Config, ValueRef};
 use crate::modules::Registry;
 use crate::pages::Navigator;
-use crate::screen::{self, LiveValues, Screen};
+use crate::screen::{self, Screen};
 
 pub struct Handler {
     config: Config,
@@ -44,12 +44,21 @@ impl Handler {
 
     /// What the deck should show right now.
     pub fn screen(&self, clock: &str) -> Screen {
-        let live = LiveValues {
-            clock: clock.to_string(),
-            page_label: self.nav.label(),
-            brightness: self.brightness,
-        };
-        screen::build(&self.config, &self.nav.view(), &live)
+        let values = |v: &ValueRef| self.value(v, clock);
+        screen::build(&self.config, &self.nav.view(), self.brightness, &values)
+    }
+
+    /// A live value: built-in for "deck:...", otherwise asked to the module.
+    fn value(&self, value: &ValueRef, clock: &str) -> Option<String> {
+        if value.module != builtin::MODULE_NAME {
+            return self.modules.value(&value.module, &value.name);
+        }
+        match value.name.as_str() {
+            "clock" => Some(clock.to_string()),
+            "page_number" => Some(self.nav.label()),
+            "brightness" => Some(format!("{}%", self.brightness)),
+            _ => None,
+        }
     }
 
     pub fn key_down(&mut self, key: u8, now: Instant) {
@@ -192,13 +201,13 @@ mod tests {
             key = 2
             module = "rec"
             short_press = "page2"
-            display = "page_number"
+            display = "deck:page_number"
             [[button]]
             folder = "f"
             key = 0
             module = "deck"
             short_press = "back"
-            display = "page_number"
+            display = "deck:page_number"
             "#,
         )
         .unwrap();

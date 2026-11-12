@@ -31,7 +31,8 @@ pub fn render(face: &KeyFace) -> Result<DynamicImage> {
     Ok(DynamicImage::ImageRgb8(image))
 }
 
-/// Draws white text centered on the key, shrinking it until it fits the width.
+/// Draws white text centered on the key. Words wrap onto several lines, and the text
+/// shrinks until it fits; at the minimum size, lines that still do not fit are cut.
 // Pixel math mixes f32 font coordinates with u32 image coordinates; values are tiny (< 100).
 #[allow(
     clippy::cast_possible_truncation,
@@ -40,19 +41,37 @@ pub fn render(face: &KeyFace) -> Result<DynamicImage> {
 )]
 fn draw_text(image: &mut RgbImage, text: &str) {
     let font = FontRef::try_from_slice(FONT).expect("bundled font is valid");
-    let key = KEY_SIZE as f32;
+    let room = KEY_SIZE as f32 - 2.0 * MARGIN;
 
     let mut size = MAX_TEXT_SIZE;
-    while size > MIN_TEXT_SIZE && text_width(&font, size, text) > key - 2.0 * MARGIN {
+    let mut lines = wrap(&font, size, text, room);
+    while size > MIN_TEXT_SIZE && !fits(&font, size, &lines, room) {
         size -= 1.0;
+        lines = wrap(&font, size, text, room);
     }
+    let line_height = font.as_scaled(PxScale::from(size)).height();
+    lines.truncate(((room / line_height) as usize).max(1));
+
+    // Center the block of lines vertically.
+    let top = (KEY_SIZE as f32 - lines.len() as f32 * line_height) / 2.0;
+    for (i, line) in lines.iter().enumerate() {
+        draw_line(image, &font, size, line, top + i as f32 * line_height);
+    }
+}
+
+/// Draws one line of text, centered horizontally, starting at `top`.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn draw_line(image: &mut RgbImage, font: &FontRef, size: f32, line: &str, top: f32) {
     let scaled = font.as_scaled(PxScale::from(size));
+    let key = KEY_SIZE as f32;
+    let mut x = (key - text_width(font, size, line)) / 2.0;
+    let baseline = top + scaled.ascent();
 
-    // Center horizontally, and vertically between the font's ascent and descent.
-    let mut x = (key - text_width(&font, size, text)) / 2.0;
-    let baseline = (key + scaled.ascent() + scaled.descent()) / 2.0;
-
-    for c in text.chars() {
+    for c in line.chars() {
         let id = scaled.glyph_id(c);
         let glyph = id.with_scale_and_position(size, point(x, baseline));
         x += scaled.h_advance(id);
@@ -73,6 +92,28 @@ fn draw_text(image: &mut RgbImage, text: &str) {
             }
         });
     }
+}
+
+/// Splits `text` into lines no wider than `room`, breaking between words.
+/// A single word wider than `room` stays on its own line.
+fn wrap(font: &FontRef, size: f32, text: &str, room: f32) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for word in text.split_whitespace() {
+        match lines.last_mut() {
+            Some(line) if text_width(font, size, &format!("{line} {word}")) <= room => {
+                line.push(' ');
+                line.push_str(word);
+            }
+            _ => lines.push(word.to_string()),
+        }
+    }
+    lines
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn fits(font: &FontRef, size: f32, lines: &[String], room: f32) -> bool {
+    let height = lines.len() as f32 * font.as_scaled(PxScale::from(size)).height();
+    height <= room && lines.iter().all(|l| text_width(font, size, l) <= room)
 }
 
 fn text_width(font: &FontRef, size: f32, text: &str) -> f32 {
@@ -107,13 +148,21 @@ mod tests {
     }
 
     #[test]
-    fn long_text_fits_in_key() {
+    fn long_text_wraps_on_words() {
         let font = FontRef::try_from_slice(FONT).unwrap();
+        let lines = wrap(&font, 9.0, "Bohemian Rhapsody Remastered", 66.0);
+        assert!(lines.len() > 1);
+        assert_eq!(lines.join(" "), "Bohemian Rhapsody Remastered");
+        assert!(lines.iter().all(|l| text_width(&font, 9.0, l) <= 66.0));
+    }
+
+    #[test]
+    fn very_long_text_still_renders() {
+        let text = "a very long title that can never fit on such a small key at all".repeat(3);
         let face = KeyFace {
-            text: Some("a very long label".into()),
+            text: Some(text),
             ..KeyFace::default()
         };
         render(&face).unwrap();
-        assert!(text_width(&font, MIN_TEXT_SIZE, "a very long label") < 72.0);
     }
 }

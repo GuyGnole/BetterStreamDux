@@ -5,6 +5,9 @@ use anyhow::{Context, Result, bail};
 
 pub const MODULE_NAME: &str = "deck";
 
+/// Live values of the deck, for `display = "deck:..."`.
+pub const VALUES: [&str; 3] = ["clock", "page_number", "brightness"];
+
 /// Brightness change per `brightness_up` / `brightness_down`.
 const BRIGHTNESS_STEP: u8 = 10;
 /// Never go fully dark: a black deck looks unplugged.

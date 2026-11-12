@@ -1,6 +1,6 @@
 //! Reads `config.toml`, the file that says which key does what, and checks it for mistakes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
@@ -47,14 +47,18 @@ pub struct Button {
     /// Actions when the key goes down and when it comes back up (push-to-talk).
     pub while_press: Option<WhilePress>,
 
-    /// Fixed text drawn on the key.
+    /// Fixed text drawn on the key. Also shown when `display` has no value.
     pub label: Option<String>,
-    /// Live text drawn on the key, replaces `label`.
-    pub display: Option<Display>,
+    /// Live text drawn on the key, e.g. "deck:clock" or "spotify:title".
+    pub display: Option<ValueRef>,
     /// Background color as "#RRGGBB".
     pub color: Option<String>,
-    /// Path to a png/jpg image. Takes priority over `color`.
+    /// Background color picked from a live value. Falls back to `color`.
+    pub color_by: Option<ColorBy>,
+    /// Path to a png/jpg image. Takes priority over colors.
     pub icon: Option<String>,
+    /// Image path from a live value, e.g. "spotify:cover". Falls back to `icon`.
+    pub icon_value: Option<ValueRef>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -64,12 +68,37 @@ pub struct WhilePress {
     pub release: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Display {
-    Clock,
-    PageNumber,
-    Brightness,
+/// A live value published by a module, written "module:name" in the config.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "String")]
+pub struct ValueRef {
+    pub module: String,
+    pub name: String,
+}
+
+impl TryFrom<String> for ValueRef {
+    type Error = String;
+
+    fn try_from(text: String) -> Result<Self, String> {
+        match text.split_once(':') {
+            Some((module, name)) if !module.is_empty() && !name.is_empty() => Ok(Self {
+                module: module.to_string(),
+                name: name.to_string(),
+            }),
+            _ => Err(format!(
+                "'{text}' should look like module:value, e.g. spotify:title"
+            )),
+        }
+    }
+}
+
+/// Picks the key color from a live value, e.g. green while `spotify:status` is "playing".
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ColorBy {
+    pub value: ValueRef,
+    /// Value -> "#RRGGBB". Values not listed use the button's `color`.
+    pub colors: HashMap<String, String>,
 }
 
 fn default_brightness() -> u8 {
@@ -98,6 +127,15 @@ impl Button {
             actions.extend([w.press.as_str(), w.release.as_str()]);
         }
         actions
+    }
+
+    /// Every live value this button reads.
+    fn value_refs(&self) -> Vec<&ValueRef> {
+        let mut refs = Vec::new();
+        refs.extend(&self.display);
+        refs.extend(&self.icon_value);
+        refs.extend(self.color_by.as_ref().map(|c| &c.value));
+        refs
     }
 
     fn deck_actions(&self) -> Vec<DeckAction> {
@@ -198,6 +236,18 @@ impl Config {
         if let Some(color) = &b.color {
             parse_color(color)?;
         }
+        for color in b.color_by.iter().flat_map(|c| c.colors.values()) {
+            parse_color(color)?;
+        }
+        for value in b.value_refs() {
+            ensure!(
+                value.module != builtin::MODULE_NAME
+                    || builtin::VALUES.contains(&value.name.as_str()),
+                "unknown deck value '{}', expected one of {:?}",
+                value.name,
+                builtin::VALUES
+            );
+        }
 
         let has_press = b.short_press.is_some() || b.long_press.is_some();
         ensure!(
@@ -205,10 +255,6 @@ impl Config {
             "while_press cannot be combined with short_press/long_press"
         );
         let has_trigger = has_press || b.while_press.is_some();
-        ensure!(
-            has_trigger || b.display.is_some(),
-            "needs short_press, long_press, while_press or display"
-        );
         ensure!(
             !has_trigger || b.module.is_some(),
             "a trigger needs a module"
@@ -301,8 +347,13 @@ mod tests {
             ("bad color", format!("{OK}color = \"red\"\n")),
             ("unknown field", format!("{OK}action = \"a\"\n")),
             (
-                "no trigger",
-                "[[button]]\nkey = 0\nmodule = \"x\"\n".to_string(),
+                "bad color_by color",
+                format!("{OK}color_by = {{ value = \"x:y\", colors = {{ a = \"red\" }} }}\n"),
+            ),
+            ("value without module", format!("{OK}display = \"clock\"\n")),
+            (
+                "unknown deck value",
+                format!("{OK}display = \"deck:weather\"\n"),
             ),
             (
                 "trigger without module",
@@ -320,7 +371,19 @@ mod tests {
 
     #[test]
     fn display_alone_is_a_valid_button() {
-        assert!(Config::parse("[[button]]\nkey = 0\ndisplay = \"clock\"").is_ok());
+        let config = Config::parse(
+            r##"
+            [[button]]
+            key = 0
+            display = "spotify:title"
+            icon_value = "spotify:cover"
+            color_by = { value = "spotify:status", colors = { playing = "#1DB954" } }
+            "##,
+        )
+        .unwrap();
+        let button = &config.buttons[0];
+        assert_eq!(button.display.as_ref().unwrap().module, "spotify");
+        assert_eq!(button.display.as_ref().unwrap().name, "title");
     }
 
     #[test]

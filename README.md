@@ -31,8 +31,11 @@ on one page or folder.
 deck action. `back` returns to that page. Folders cannot open folders, and every folder
 needs a `back` key.
 
-**Look**: `color`, `icon`, `label` (fixed text), or `display` (live text: `clock`,
-`page_number`, `brightness`).
+**Look**: `color`, `icon`, `label` (fixed text).
+
+**Live look**: modules publish values written `module:value` (e.g. `spotify:title`).
+`display` shows one as text, `icon_value` as an image, `color_by` picks the color from it.
+When a value is unavailable (e.g. Spotify closed), the fixed field is used instead.
 
 **Triggers**:
 
@@ -45,12 +48,14 @@ needs a `back` key.
 A key with only `short_press` fires instantly on press. Config mistakes (duplicate key,
 mixed triggers, missing folder, typos...) are reported at startup.
 
-| Module    | Actions                                       | Status          |
-|-----------|-----------------------------------------------|-----------------|
-| `spotify` | `play_pause`, `next`, `previous`, `stop`      | working         |
-| `discord` | `mute`, `unmute`, `toggle_mute`, `toggle_deafen` | not implemented |
-| `shell`   | any command line                              | working         |
-| `deck`    | `next_page`, `previous_page`, `go_to_page N`, `open_folder NAME`, `back`, `brightness_up`, `brightness_down` | built-in |
+| Module    | Actions | Values | Status |
+|-----------|---------|--------|--------|
+| `spotify` | `play_pause`, `play`, `pause`, `next`, `previous`, `stop`, `volume_up`, `volume_down`, `seek_forward`, `seek_back` | `status`, `title`, `artist`, `album`, `volume`, `cover` | working (MPRIS, no account needed) |
+| `discord` | `mute`, `unmute`, `toggle_mute`, `toggle_deafen` | | not implemented |
+| `shell`   | any command line | | working |
+| `deck`    | `next_page`, `previous_page`, `go_to_page N`, `open_folder NAME`, `back`, `brightness_up`, `brightness_down` | `clock`, `page_number`, `brightness` | built-in |
+
+Spotify shuffle/repeat are not supported: the Linux app ignores them over MPRIS.
 
 ## Project layout
 
@@ -66,6 +71,7 @@ src/
   deck.rs          Stream Deck hardware (connect, redraw changed keys, read events)
   modules/
     mod.rs         Module trait + registry
+    paths.rs       per-user directories (cache)
     spotify.rs     one file per application
     discord.rs
     shell.rs
@@ -77,6 +83,8 @@ udev/              permission rule for the device
 ## Add a module
 
 1. Create `src/modules/<app>.rs` with a struct implementing `Module` (copy `spotify.rs`).
+   `run()` performs actions; `value()` returns live values and must be instant, so read
+   the application's state in a background thread (see `spotify.rs`).
 2. Add `mod <app>;` in `src/modules/mod.rs` and register it in `Registry::new`.
 3. Bind it in `config.toml`.
 

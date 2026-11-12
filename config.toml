@@ -16,10 +16,18 @@ long_press_ms = 500   # how long a key must be held to count as a long press
 #   folder = "name"            instead of page: a single extra page, opened with "open_folder name"
 #
 # Look:
-#   color   = "#RRGGBB"        background
-#   icon    = "path.png"       image, replaces color
-#   label   = "Text"           fixed text
-#   display = "clock" | "page_number" | "brightness"   live text, replaces label
+#   color      = "#RRGGBB"     background
+#   icon       = "path.png"    image, replaces color
+#   label      = "Text"        fixed text
+#
+# Live look, from values published by modules ("module:value"). When a value is
+# unavailable (e.g. Spotify closed), the fixed field above is used instead.
+#   display    = "spotify:title"                text, replaces label
+#   icon_value = "spotify:cover"                image path, replaces icon
+#   color_by   = { value = "spotify:status", colors = { playing = "#1DB954" } }
+#
+# Values: deck:clock, deck:page_number, deck:brightness
+#         spotify:status, title, artist, album, volume, cover
 #
 # Action (needs `module`):
 #   module      = "spotify" | "discord" | "shell" | "deck"
@@ -32,34 +40,47 @@ long_press_ms = 500   # how long a key must be held to count as a long press
 #                 brightness_up, brightness_down
 # Every folder needs a key with the "back" action.
 
-# ---------- Page 1: media ----------
+# ---------- Page 1: Spotify ----------
 
 [[button]]
 key = 0
 module = "spotify"
 short_press = "previous"
+long_press = "seek_back"
 label = "Prev"
 color = "#1DB954"
 
+# Green while playing, grey otherwise. Hold to stop.
 [[button]]
 key = 1
 module = "spotify"
 short_press = "play_pause"
 long_press = "stop"
 label = "Play"
-color = "#1DB954"
+color = "#535353"
+color_by = { value = "spotify:status", colors = { playing = "#1DB954" } }
 
 [[button]]
 key = 2
 module = "spotify"
 short_press = "next"
+long_press = "seek_forward"
 label = "Next"
 color = "#1DB954"
 
+# Album cover; plain dark key when Spotify is closed.
+[[button]]
+key = 3
+module = "spotify"
+short_press = "play_pause"
+icon_value = "spotify:cover"
+color = "#191414"
+
 [[button]]
 key = 4
-display = "clock"
-color = "#222222"
+display = "spotify:title"
+label = "Spotify"
+color = "#191414"
 
 [[button]]
 key = 5
@@ -69,22 +90,36 @@ label = "PTT"
 color = "#5865F2"
 
 [[button]]
+key = 6
+module = "spotify"
+short_press = "volume_down"
+label = "Vol -"
+color = "#333333"
+
+[[button]]
+key = 7
+display = "spotify:volume"
+color = "#191414"
+
+[[button]]
+key = 8
+module = "spotify"
+short_press = "volume_up"
+label = "Vol +"
+color = "#333333"
+
+[[button]]
 key = 9
 module = "deck"
 short_press = "open_folder settings"
 label = "Settings"
 color = "#444444"
 
-# ---------- Page 2: misc ----------
-
 [[button]]
 page = 2
-key = 0
-module = "shell"
-short_press = "notify-send 'BetterStreamDux' 'short press'"
-long_press = "notify-send 'BetterStreamDux' 'long press'"
-label = "Notify"
-color = "#444444"
+key = 4
+display = "deck:clock"
+color = "#222222"
 
 # ---------- Navigation bar (bottom row, repeated on each page) ----------
 
@@ -98,7 +133,7 @@ color = "#333333"
 [[button]]
 key = 12
 module = "deck"
-display = "page_number"
+display = "deck:page_number"
 long_press = "go_to_page 1"
 color = "#333333"
 
@@ -121,7 +156,7 @@ color = "#333333"
 page = 2
 key = 12
 module = "deck"
-display = "page_number"
+display = "deck:page_number"
 long_press = "go_to_page 1"
 color = "#333333"
 
@@ -154,7 +189,7 @@ color = "#444444"
 [[button]]
 folder = "settings"
 key = 7
-display = "brightness"
+display = "deck:brightness"
 
 [[button]]
 folder = "settings"

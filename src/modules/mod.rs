@@ -6,6 +6,7 @@
 //!   3. register it in [`Registry::new`]
 
 mod discord;
+mod paths;
 mod shell;
 mod spotify;
 
@@ -20,6 +21,12 @@ pub trait Module {
 
     /// Runs one action, e.g. `"play_pause"`.
     fn run(&mut self, action: &str) -> Result<()>;
+
+    /// A live value for keys (`display = "module:name"`), e.g. `"title"`.
+    /// Called every tick: must be instant, so do slow work in a background thread.
+    fn value(&self, _name: &str) -> Option<String> {
+        None
+    }
 }
 
 /// Holds every available module, looked up by name.
@@ -31,7 +38,7 @@ impl Registry {
     /// Every real module. Add new ones here.
     pub fn new() -> Self {
         Self::from(vec![
-            Box::new(spotify::Spotify) as Box<dyn Module>,
+            Box::new(spotify::Spotify::start()) as Box<dyn Module>,
             Box::new(discord::Discord),
             Box::new(shell::Shell),
         ])
@@ -48,5 +55,9 @@ impl Registry {
             Some(m) => m.run(action),
             None => bail!("unknown module '{module}'"),
         }
+    }
+
+    pub fn value(&self, module: &str, name: &str) -> Option<String> {
+        self.modules.get(module)?.value(name)
     }
 }

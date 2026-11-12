@@ -15,6 +15,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg"]
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 toml = "1.2"                # reads config.toml
+ureq = "3"                  # HTTP client, downloads Spotify album covers
 zbus = "5"                  # D-Bus, used by the Spotify module (MPRIS)
 
 [lints.clippy]
