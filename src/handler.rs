@@ -1,97 +1,139 @@
 //! Turns raw key down/up events into triggers (short press, long press, while press)
-//! and runs the matching module action.
+//! and runs the matching action: built-in `deck` actions here, others in `modules/`.
 //!
 //! Time is passed in as `now` so the logic can be tested without waiting.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::config::Config;
+use crate::builtin::{self, DeckAction};
+use crate::config::{Button, Config};
 use crate::modules::Registry;
+use crate::pages::Navigator;
+use crate::screen::{self, LiveValues, Screen};
 
 pub struct Handler {
     config: Config,
     modules: Registry,
+    nav: Navigator,
+    brightness: u8,
     long_press: Duration,
-    /// Keys currently held that have a `long_press` binding.
-    held: HashMap<u8, Held>,
+    /// Keys currently held down.
+    pressed: HashMap<u8, Pressed>,
 }
 
-struct Held {
+struct Pressed {
+    /// Copy of the button taken at key down: if the page changes while the key is held,
+    /// release and long press still belong to the button that was pressed.
+    button: Button,
     since: Instant,
     long_press_done: bool,
 }
 
 impl Handler {
     pub fn new(config: Config, modules: Registry) -> Self {
-        let long_press = Duration::from_millis(config.long_press_ms);
         Self {
-            config,
+            nav: Navigator::new(config.page_count()),
+            brightness: config.brightness,
+            long_press: Duration::from_millis(config.long_press_ms),
+            pressed: HashMap::new(),
             modules,
-            long_press,
-            held: HashMap::new(),
+            config,
         }
     }
 
+    /// What the deck should show right now.
+    pub fn screen(&self, clock: &str) -> Screen {
+        let live = LiveValues {
+            clock: clock.to_string(),
+            page_label: self.nav.label(),
+            brightness: self.brightness,
+        };
+        screen::build(&self.config, &self.nav.view(), &live)
+    }
+
     pub fn key_down(&mut self, key: u8, now: Instant) {
-        let Some(button) = self.config.button(key) else {
+        let Some(button) = self.config.button(&self.nav.view(), key).cloned() else {
             log::debug!("key {key} has no binding");
             return;
         };
         if let Some(while_press) = &button.while_press {
-            run(&mut self.modules, &button.module, &while_press.press);
-        } else if button.long_press.is_none() {
+            self.run(&button, &while_press.press);
+        } else if button.long_press.is_none()
+            && let Some(action) = &button.short_press
+        {
             // No long press to tell apart: run right away instead of waiting for release.
-            if let Some(action) = &button.short_press {
-                run(&mut self.modules, &button.module, action);
-            }
-        } else {
-            // Short or long? We only know on release or when the delay runs out (see `tick`).
-            self.held.insert(
-                key,
-                Held {
-                    since: now,
-                    long_press_done: false,
-                },
-            );
+            self.run(&button, action);
         }
+        // Otherwise: short or long? We only know on release or when the delay runs out (`tick`).
+        self.pressed.insert(
+            key,
+            Pressed {
+                button,
+                since: now,
+                long_press_done: false,
+            },
+        );
     }
 
     pub fn key_up(&mut self, key: u8) {
-        let Some(button) = self.config.button(key) else {
+        let Some(pressed) = self.pressed.remove(&key) else {
             return;
         };
+        let button = &pressed.button;
         if let Some(while_press) = &button.while_press {
-            run(&mut self.modules, &button.module, &while_press.release);
-        } else if let Some(held) = self.held.remove(&key)
-            && !held.long_press_done
+            self.run(button, &while_press.release);
+        } else if button.long_press.is_some()
+            && !pressed.long_press_done
             && let Some(action) = &button.short_press
         {
-            run(&mut self.modules, &button.module, action);
+            self.run(button, action);
         }
     }
 
     /// Call regularly: fires `long_press` for keys held long enough.
     pub fn tick(&mut self, now: Instant) {
-        for (key, held) in &mut self.held {
-            if held.long_press_done || now - held.since < self.long_press {
-                continue;
-            }
-            held.long_press_done = true;
-            if let Some(button) = self.config.button(*key)
-                && let Some(action) = &button.long_press
+        let mut due = Vec::new();
+        for pressed in self.pressed.values_mut() {
+            if let Some(action) = &pressed.button.long_press
+                && !pressed.long_press_done
+                && now - pressed.since >= self.long_press
             {
-                run(&mut self.modules, &button.module, action);
+                pressed.long_press_done = true;
+                due.push((pressed.button.clone(), action.clone()));
             }
         }
+        for (button, action) in due {
+            self.run(&button, &action);
+        }
     }
-}
 
-/// Runs one action. Errors are logged, they must never stop the program.
-fn run(modules: &mut Registry, module: &str, action: &str) {
-    log::info!("{module}::{action}");
-    if let Err(err) = modules.run(module, action) {
-        log::error!("{module}::{action} failed: {err:#}");
+    /// Runs one action. Errors are logged, they must never stop the program.
+    fn run(&mut self, button: &Button, action: &str) {
+        let module = button.module.as_deref().unwrap_or_default();
+        log::info!("{module}::{action}");
+        let result = if module == builtin::MODULE_NAME {
+            DeckAction::parse(action).map(|a| self.run_deck_action(a))
+        } else {
+            self.modules.run(module, action)
+        };
+        if let Err(err) = result {
+            log::error!("{module}::{action} failed: {err:#}");
+        }
+    }
+
+    fn run_deck_action(&mut self, action: DeckAction) {
+        match action {
+            DeckAction::NextPage => self.nav.next_page(),
+            DeckAction::PreviousPage => self.nav.previous_page(),
+            DeckAction::GoToPage(page) => self.nav.go_to_page(page),
+            DeckAction::OpenFolder(name) => self.nav.open_folder(&name),
+            DeckAction::Back => self.nav.back(),
+            DeckAction::BrightnessUp => self.brightness = builtin::brightness_up(self.brightness),
+            DeckAction::BrightnessDown => {
+                self.brightness = builtin::brightness_down(self.brightness);
+            }
+        }
     }
 }
 
@@ -133,6 +175,30 @@ mod tests {
             key = 2
             module = "rec"
             while_press = { press = "down", release = "up" }
+            [[button]]
+            key = 3
+            module = "deck"
+            short_press = "next_page"
+            [[button]]
+            key = 4
+            module = "deck"
+            short_press = "brightness_up"
+            [[button]]
+            key = 5
+            module = "deck"
+            short_press = "open_folder f"
+            [[button]]
+            page = 2
+            key = 2
+            module = "rec"
+            short_press = "page2"
+            display = "page_number"
+            [[button]]
+            folder = "f"
+            key = 0
+            module = "deck"
+            short_press = "back"
+            display = "page_number"
             "#,
         )
         .unwrap();
@@ -143,6 +209,16 @@ mod tests {
 
     fn ms(start: Instant, n: u64) -> Instant {
         start + Duration::from_millis(n)
+    }
+
+    /// Text shown on `key` right now.
+    fn text(h: &Handler, key: usize) -> Option<String> {
+        h.screen("00:00").keys[key].text.clone()
+    }
+
+    fn tap(h: &mut Handler, key: u8) {
+        h.key_down(key, Instant::now());
+        h.key_up(key);
     }
 
     #[test]
@@ -189,8 +265,41 @@ mod tests {
     #[test]
     fn unbound_key_does_nothing() {
         let (mut h, log) = setup();
-        h.key_down(9, Instant::now());
-        h.key_up(9);
+        tap(&mut h, 9);
         assert!(log.borrow().is_empty());
+    }
+
+    #[test]
+    fn next_page_shows_other_buttons() {
+        let (mut h, log) = setup();
+        tap(&mut h, 3);
+        assert_eq!(text(&h, 2).as_deref(), Some("2/2"));
+        tap(&mut h, 2);
+        assert_eq!(*log.borrow(), ["page2"]);
+    }
+
+    #[test]
+    fn release_after_page_change_goes_to_pressed_button() {
+        let (mut h, log) = setup();
+        h.key_down(2, Instant::now()); // while_press on page 1
+        tap(&mut h, 3); // go to page 2, where key 2 is another button
+        h.key_up(2);
+        assert_eq!(*log.borrow(), ["down", "up"]);
+    }
+
+    #[test]
+    fn folder_opens_and_goes_back() {
+        let (mut h, _) = setup();
+        tap(&mut h, 5);
+        assert_eq!(text(&h, 0).as_deref(), Some("f"));
+        tap(&mut h, 0);
+        assert_eq!(text(&h, 0), None, "back on page 1, key 0 has no text");
+    }
+
+    #[test]
+    fn brightness_up_changes_screen() {
+        let (mut h, _) = setup();
+        tap(&mut h, 4);
+        assert_eq!(h.screen("00:00").brightness, 70);
     }
 }

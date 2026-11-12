@@ -1,14 +1,21 @@
-//! Reads `config.toml`, the file that says which key does what.
+//! Reads `config.toml`, the file that says which key does what, and checks it for mistakes.
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
+
+use crate::builtin::{self, DeckAction};
+use crate::pages::View;
+
+/// Keys on a Stream Deck MK.2.
+pub const KEY_COUNT: u8 = 15;
+pub const MAX_PAGES: u8 = 5;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    /// Screen brightness, 0-100.
+    /// Brightness at startup, 10-100.
     #[serde(default = "default_brightness")]
     pub brightness: u8,
 
@@ -20,31 +27,49 @@ pub struct Config {
     pub buttons: Vec<Button>,
 }
 
-/// One key binding. Either `short_press` and/or `long_press`, or `while_press` alone.
-#[derive(Debug, Deserialize)]
+/// One key binding on one page or folder.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Button {
-    /// Key index, 0-14 on a Stream Deck MK.2.
+    /// Key index, 0-14.
     pub key: u8,
-    /// Module name, e.g. "spotify".
-    pub module: String,
+    /// Main page 1-5. Defaults to 1 when `folder` is not set.
+    pub page: Option<u8>,
+    /// Folder name, instead of `page`.
+    pub folder: Option<String>,
+
+    /// Module name, e.g. "spotify", or "deck" for built-in actions. Needed if a trigger is set.
+    pub module: Option<String>,
     /// Action when the key is released before `long_press_ms`.
     pub short_press: Option<String>,
     /// Action when the key has been held for `long_press_ms`.
     pub long_press: Option<String>,
     /// Actions when the key goes down and when it comes back up (push-to-talk).
     pub while_press: Option<WhilePress>,
+
+    /// Fixed text drawn on the key.
+    pub label: Option<String>,
+    /// Live text drawn on the key, replaces `label`.
+    pub display: Option<Display>,
     /// Background color as "#RRGGBB".
     pub color: Option<String>,
     /// Path to a png/jpg image. Takes priority over `color`.
     pub icon: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WhilePress {
     pub press: String,
     pub release: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Display {
+    Clock,
+    PageNumber,
+    Brightness,
 }
 
 fn default_brightness() -> u8 {
@@ -53,6 +78,38 @@ fn default_brightness() -> u8 {
 
 fn default_long_press_ms() -> u64 {
     500
+}
+
+impl Button {
+    /// The page or folder this button belongs to.
+    pub fn view(&self) -> View {
+        match &self.folder {
+            Some(name) => View::Folder(name.clone()),
+            None => View::Page(self.page.unwrap_or(1)),
+        }
+    }
+
+    /// Every action string this button can run.
+    fn actions(&self) -> Vec<&str> {
+        let mut actions = Vec::new();
+        actions.extend(self.short_press.as_deref());
+        actions.extend(self.long_press.as_deref());
+        if let Some(w) = &self.while_press {
+            actions.extend([w.press.as_str(), w.release.as_str()]);
+        }
+        actions
+    }
+
+    fn deck_actions(&self) -> Vec<DeckAction> {
+        if self.module.as_deref() != Some(builtin::MODULE_NAME) {
+            return Vec::new();
+        }
+        // Parse errors are reported by `validate_button`.
+        self.actions()
+            .into_iter()
+            .filter_map(|a| DeckAction::parse(a).ok())
+            .collect()
+    }
 }
 
 impl Config {
@@ -67,26 +124,118 @@ impl Config {
         Ok(config)
     }
 
-    /// Returns the button bound to `key`, if any.
-    pub fn button(&self, key: u8) -> Option<&Button> {
-        self.buttons.iter().find(|b| b.key == key)
+    /// Returns the button at `key` in `view`, if any.
+    pub fn button(&self, view: &View, key: u8) -> Option<&Button> {
+        self.buttons
+            .iter()
+            .find(|b| b.key == key && b.view() == *view)
     }
 
-    /// Catches binding mistakes at startup instead of when a key is pressed.
+    /// Number of main pages: the highest page used, at least 1.
+    pub fn page_count(&self) -> u8 {
+        self.buttons
+            .iter()
+            .filter_map(|b| b.page)
+            .max()
+            .unwrap_or(1)
+    }
+
+    fn folders(&self) -> HashSet<&str> {
+        self.buttons
+            .iter()
+            .filter_map(|b| b.folder.as_deref())
+            .collect()
+    }
+
+    /// Catches config mistakes at startup instead of when a key is pressed.
     fn validate(&self) -> Result<()> {
+        ensure!(
+            (builtin::BRIGHTNESS_MIN..=builtin::BRIGHTNESS_MAX).contains(&self.brightness),
+            "brightness must be between {} and {}",
+            builtin::BRIGHTNESS_MIN,
+            builtin::BRIGHTNESS_MAX
+        );
         let mut seen = HashSet::new();
-        for b in &self.buttons {
-            let key = b.key;
-            if !seen.insert(key) {
-                bail!("key {key} is bound twice");
+        for button in &self.buttons {
+            let place = match &button.folder {
+                Some(name) => format!("folder '{name}' key {}", button.key),
+                None => format!("page {} key {}", button.page.unwrap_or(1), button.key),
+            };
+            ensure!(
+                seen.insert((button.view(), button.key)),
+                "{place} is bound twice"
+            );
+            self.validate_button(button).with_context(|| place)?;
+        }
+        for folder in self.folders() {
+            let has_back = self.buttons.iter().any(|b| {
+                b.folder.as_deref() == Some(folder) && b.deck_actions().contains(&DeckAction::Back)
+            });
+            ensure!(
+                has_back,
+                "folder '{folder}' has no key with the deck action 'back'"
+            );
+        }
+        Ok(())
+    }
+
+    fn validate_button(&self, b: &Button) -> Result<()> {
+        ensure!(
+            b.key < KEY_COUNT,
+            "key must be between 0 and {}",
+            KEY_COUNT - 1
+        );
+        ensure!(
+            b.page.is_none() || b.folder.is_none(),
+            "use either page or folder, not both"
+        );
+        if let Some(page) = b.page {
+            ensure!(
+                (1..=MAX_PAGES).contains(&page),
+                "page must be between 1 and {MAX_PAGES}"
+            );
+        }
+        if let Some(color) = &b.color {
+            parse_color(color)?;
+        }
+
+        let has_press = b.short_press.is_some() || b.long_press.is_some();
+        ensure!(
+            b.while_press.is_none() || !has_press,
+            "while_press cannot be combined with short_press/long_press"
+        );
+        let has_trigger = has_press || b.while_press.is_some();
+        ensure!(
+            has_trigger || b.display.is_some(),
+            "needs short_press, long_press, while_press or display"
+        );
+        ensure!(
+            !has_trigger || b.module.is_some(),
+            "a trigger needs a module"
+        );
+
+        if b.module.as_deref() == Some(builtin::MODULE_NAME) {
+            for action in b.actions() {
+                self.validate_deck_action(b, &DeckAction::parse(action)?)?;
             }
-            let has_press = b.short_press.is_some() || b.long_press.is_some();
-            if b.while_press.is_some() && has_press {
-                bail!("key {key}: while_press cannot be combined with short_press/long_press");
+        }
+        Ok(())
+    }
+
+    fn validate_deck_action(&self, b: &Button, action: &DeckAction) -> Result<()> {
+        match action {
+            DeckAction::GoToPage(page) => ensure!(
+                (1..=self.page_count()).contains(page),
+                "go_to_page {page}: page {page} has no buttons"
+            ),
+            DeckAction::OpenFolder(name) => {
+                ensure!(b.folder.is_none(), "folders cannot open other folders");
+                ensure!(
+                    self.folders().contains(name.as_str()),
+                    "folder '{name}' does not exist"
+                );
             }
-            if b.while_press.is_none() && !has_press {
-                bail!("key {key}: needs short_press, long_press or while_press");
-            }
+            _ => {}
         }
         Ok(())
     }
@@ -94,15 +243,20 @@ impl Config {
 
 /// Turns "#RRGGBB" into `[r, g, b]`.
 pub fn parse_color(hex: &str) -> Result<[u8; 3]> {
-    let hex = hex.trim_start_matches('#');
-    anyhow::ensure!(hex.len() == 6, "color must look like #RRGGBB, got {hex}");
-    let channel = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16);
+    let digits = hex.trim_start_matches('#');
+    if digits.len() != 6 || !digits.is_ascii() {
+        bail!("color must look like #RRGGBB, got '{hex}'");
+    }
+    let channel = |i: usize| u8::from_str_radix(&digits[i..i + 2], 16);
     Ok([channel(0)?, channel(2)?, channel(4)?])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A valid button, to append fields to.
+    const OK: &str = "[[button]]\nkey = 0\nmodule = \"x\"\nshort_press = \"a\"\n";
 
     #[test]
     fn parses_buttons() {
@@ -115,7 +269,8 @@ mod tests {
             short_press = "play_pause"
             long_press = "next"
             [[button]]
-            key = 2
+            page = 2
+            key = 1
             module = "discord"
             while_press = { press = "unmute", release = "mute" }
             "#,
@@ -123,52 +278,77 @@ mod tests {
         .unwrap();
         assert_eq!(config.brightness, 30);
         assert_eq!(config.long_press_ms, 500);
-        assert_eq!(
-            config.button(1).unwrap().long_press.as_deref(),
-            Some("next")
+        assert_eq!(config.page_count(), 2);
+        let page1 = config.button(&View::Page(1), 1).unwrap();
+        assert_eq!(page1.long_press.as_deref(), Some("next"));
+        let page2 = config.button(&View::Page(2), 1).unwrap();
+        assert_eq!(page2.while_press.as_ref().unwrap().release, "mute");
+        assert!(config.button(&View::Page(1), 3).is_none());
+    }
+
+    #[test]
+    fn same_key_on_different_pages_is_fine() {
+        assert!(Config::parse(&format!("{OK}{OK}page = 2\n")).is_ok());
+    }
+
+    #[test]
+    fn rejects_invalid_buttons() {
+        let cases = [
+            ("duplicate key", format!("{OK}{OK}")),
+            ("key out of range", OK.replace("key = 0", "key = 15")),
+            ("page out of range", format!("{OK}page = 6\n")),
+            ("page and folder", format!("{OK}page = 1\nfolder = \"f\"\n")),
+            ("bad color", format!("{OK}color = \"red\"\n")),
+            ("unknown field", format!("{OK}action = \"a\"\n")),
+            (
+                "no trigger",
+                "[[button]]\nkey = 0\nmodule = \"x\"\n".to_string(),
+            ),
+            (
+                "trigger without module",
+                "[[button]]\nkey = 0\nshort_press = \"a\"\n".to_string(),
+            ),
+            (
+                "while_press mixed",
+                format!("{OK}while_press = {{ press = \"b\", release = \"c\" }}\n"),
+            ),
+        ];
+        for (name, text) in cases {
+            assert!(Config::parse(&text).is_err(), "should reject: {name}");
+        }
+    }
+
+    #[test]
+    fn display_alone_is_a_valid_button() {
+        assert!(Config::parse("[[button]]\nkey = 0\ndisplay = \"clock\"").is_ok());
+    }
+
+    #[test]
+    fn checks_deck_actions() {
+        let deck = |action: &str, extra: &str| {
+            format!("[[button]]\nkey = 0\nmodule = \"deck\"\nshort_press = \"{action}\"\n{extra}")
+        };
+        let back_in_f = deck("back", "folder = \"f\"\n");
+
+        assert!(Config::parse(&deck("fly", "")).is_err(), "unknown action");
+        assert!(
+            Config::parse(&deck("go_to_page 2", "")).is_err(),
+            "page 2 is empty"
         );
-        assert_eq!(
-            config
-                .button(2)
-                .unwrap()
-                .while_press
-                .as_ref()
-                .unwrap()
-                .release,
-            "mute"
+        assert!(
+            Config::parse(&deck("open_folder f", "")).is_err(),
+            "folder f missing"
         );
-        assert!(config.button(3).is_none());
-    }
-
-    #[test]
-    fn rejects_while_press_mixed_with_short_press() {
-        let err = Config::parse(
-            r#"
-            [[button]]
-            key = 1
-            module = "x"
-            short_press = "a"
-            while_press = { press = "b", release = "c" }
-            "#,
+        assert!(Config::parse(&format!("{}{back_in_f}", deck("open_folder f", ""))).is_ok());
+        assert!(
+            Config::parse(&deck("next_page", "folder = \"f\"\n")).is_err(),
+            "folder without back"
         );
-        assert!(err.is_err());
-    }
-
-    #[test]
-    fn rejects_button_without_action() {
-        assert!(Config::parse("[[button]]\nkey = 1\nmodule = \"x\"").is_err());
-    }
-
-    #[test]
-    fn rejects_duplicate_keys() {
-        let text = "[[button]]\nkey = 1\nmodule = \"x\"\nshort_press = \"a\"\n";
-        assert!(Config::parse(&text.repeat(2)).is_err());
-    }
-
-    #[test]
-    fn rejects_unknown_fields() {
-        // Catches typos and the old `action = ...` format.
-        assert!(Config::parse("[[button]]\nkey = 1\nmodule = \"x\"\naction = \"a\"").is_err());
+        let nested = deck("open_folder f", "folder = \"f\"\nkey = 1\n").replace("key = 0\n", "");
+        assert!(
+            Config::parse(&format!("{back_in_f}{nested}")).is_err(),
+            "folder in folder"
+        );
     }
 
     #[test]

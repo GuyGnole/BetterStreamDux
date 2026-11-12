@@ -5,28 +5,40 @@
 #    5  6  7  8  9
 #   10 11 12 13 14
 
-brightness = 60
+brightness = 60       # at startup, 10-100
+long_press_ms = 500   # how long a key must be held to count as a long press
 
-# How long (ms) a key must be held to count as a long press.
-long_press_ms = 500
-
-# Each [[button]] binds one key to one module.
-#   key    : which key (0-14)
-#   module : "spotify", "discord" or "shell"
-#   color  : optional background color, "#RRGGBB"
-#   icon   : optional image path (png/jpg), takes priority over color
+# Each [[button]] is one key on one page or folder.
 #
-# Then pick triggers (action names: see each module's file in src/modules/):
+# Where:
+#   key    = 0-14
+#   page   = 1-5 (default 1)   main pages, the highest page used sets the page count
+#   folder = "name"            instead of page: a single extra page, opened with "open_folder name"
+#
+# Look:
+#   color   = "#RRGGBB"        background
+#   icon    = "path.png"       image, replaces color
+#   label   = "Text"           fixed text
+#   display = "clock" | "page_number" | "brightness"   live text, replaces label
+#
+# Action (needs `module`):
+#   module      = "spotify" | "discord" | "shell" | "deck"
 #   short_press = "..."                               released before long_press_ms
 #   long_press  = "..."                               held for long_press_ms
 #   while_press = { press = "...", release = "..." }  push-to-talk style, cannot be mixed
+#   A key with only short_press fires instantly on press.
 #
-# A key with only short_press fires instantly on press (no long press to wait for).
+# "deck" actions: next_page, previous_page, go_to_page N, open_folder NAME, back,
+#                 brightness_up, brightness_down
+# Every folder needs a key with the "back" action.
+
+# ---------- Page 1: media ----------
 
 [[button]]
 key = 0
 module = "spotify"
 short_press = "previous"
+label = "Prev"
 color = "#1DB954"
 
 [[button]]
@@ -34,24 +46,120 @@ key = 1
 module = "spotify"
 short_press = "play_pause"
 long_press = "stop"
+label = "Play"
 color = "#1DB954"
 
 [[button]]
 key = 2
 module = "spotify"
 short_press = "next"
+label = "Next"
 color = "#1DB954"
+
+[[button]]
+key = 4
+display = "clock"
+color = "#222222"
 
 [[button]]
 key = 5
 module = "discord"
 while_press = { press = "unmute", release = "mute" }
+label = "PTT"
 color = "#5865F2"
 
-# The shell module runs any command: the action is the command line.
 [[button]]
-key = 14
+key = 9
+module = "deck"
+short_press = "open_folder settings"
+label = "Settings"
+color = "#444444"
+
+# ---------- Page 2: misc ----------
+
+[[button]]
+page = 2
+key = 0
 module = "shell"
 short_press = "notify-send 'BetterStreamDux' 'short press'"
 long_press = "notify-send 'BetterStreamDux' 'long press'"
+label = "Notify"
+color = "#444444"
+
+# ---------- Navigation bar (bottom row, repeated on each page) ----------
+
+[[button]]
+key = 10
+module = "deck"
+short_press = "previous_page"
+label = "<"
+color = "#333333"
+
+[[button]]
+key = 12
+module = "deck"
+display = "page_number"
+long_press = "go_to_page 1"
+color = "#333333"
+
+[[button]]
+key = 14
+module = "deck"
+short_press = "next_page"
+label = ">"
+color = "#333333"
+
+[[button]]
+page = 2
+key = 10
+module = "deck"
+short_press = "previous_page"
+label = "<"
+color = "#333333"
+
+[[button]]
+page = 2
+key = 12
+module = "deck"
+display = "page_number"
+long_press = "go_to_page 1"
+color = "#333333"
+
+[[button]]
+page = 2
+key = 14
+module = "deck"
+short_press = "next_page"
+label = ">"
+color = "#333333"
+
+# ---------- Folder: settings ----------
+
+[[button]]
+folder = "settings"
+key = 0
+module = "deck"
+short_press = "back"
+label = "Back"
+color = "#333333"
+
+[[button]]
+folder = "settings"
+key = 6
+module = "deck"
+short_press = "brightness_down"
+label = "-"
+color = "#444444"
+
+[[button]]
+folder = "settings"
+key = 7
+display = "brightness"
+
+[[button]]
+folder = "settings"
+key = 8
+module = "deck"
+short_press = "brightness_up"
+label = "+"
 color = "#444444"

@@ -13,6 +13,8 @@ Rust app controlling an Elgato Stream Deck MK.2 on Fedora (Wayland). See README.
 ## Where things go
 - Hardware code only in `src/deck.rs`.
 - Trigger logic (short/long/while press) only in `src/handler.rs`. It takes `now: Instant` as a parameter so tests never sleep.
+- Drawing flow: `handler.screen()` -> `screen::build` (pure, what to show) -> `deck.draw` (diffs, calls `render`). Never draw from elsewhere.
+- Built-in deck actions (pages, folders, brightness): parse in `src/builtin.rs`, execute in `handler.rs`, validate in `config.rs`.
 - One application = one file in `src/modules/`, implementing the `Module` trait. Register it in `Registry::new`.
 - New config fields go in `src/config.rs`, with an example in `config.toml`.
 - New module: update the module table in README.md.

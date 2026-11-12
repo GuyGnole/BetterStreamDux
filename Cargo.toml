@@ -6,7 +6,9 @@ description = "Stream Deck MK.2 controller for Linux, with one module per applic
 publish = false
 
 [dependencies]
+ab_glyph = "0.2"            # draws text (labels, clock) on key images
 anyhow = "1"                # simple error handling
+chrono = { version = "0.4", default-features = false, features = ["clock"] }  # local time for the clock
 elgato-streamdeck = "0.14"  # talks to the Stream Deck over HID
 env_logger = "0.11"         # prints logs, controlled by RUST_LOG
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
