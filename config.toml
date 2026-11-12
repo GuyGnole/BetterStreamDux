@@ -1,0 +1,46 @@
+# BetterStreamDux configuration.
+# Keys are numbered 0-14, left to right, top to bottom:
+#
+#    0  1  2  3  4
+#    5  6  7  8  9
+#   10 11 12 13 14
+
+brightness = 60
+
+# Each [[button]] binds one key to one module action.
+#   key    : which key (0-14)
+#   module : "spotify", "discord" or "shell"
+#   action : what the module should do (see each module's file in src/modules/)
+#   color  : optional background color, "#RRGGBB"
+#   icon   : optional image path (png/jpg), takes priority over color
+
+[[button]]
+key = 0
+module = "spotify"
+action = "previous"
+color = "#1DB954"
+
+[[button]]
+key = 1
+module = "spotify"
+action = "play_pause"
+color = "#1DB954"
+
+[[button]]
+key = 2
+module = "spotify"
+action = "next"
+color = "#1DB954"
+
+[[button]]
+key = 5
+module = "discord"
+action = "toggle_mute"
+color = "#5865F2"
+
+# The shell module runs any command: action is the command line.
+[[button]]
+key = 14
+module = "shell"
+action = "notify-send 'BetterStreamDux' 'Hello from the Stream Deck'"
+color = "#444444"

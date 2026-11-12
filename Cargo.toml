@@ -1,0 +1,21 @@
+[package]
+name = "betterstreamdux"
+version = "0.1.0"
+edition = "2024"
+description = "Stream Deck MK.2 controller for Linux, with one module per application"
+publish = false
+
+[dependencies]
+anyhow = "1"                # simple error handling
+elgato-streamdeck = "0.14"  # talks to the Stream Deck over HID
+env_logger = "0.11"         # prints logs, controlled by RUST_LOG
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+toml = "1.2"                # reads config.toml
+zbus = "5"                  # D-Bus, used by the Spotify module (MPRIS)
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
