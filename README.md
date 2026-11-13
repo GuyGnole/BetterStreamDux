@@ -41,9 +41,18 @@ second. An invalid file is refused and the current config keeps running.
 - Right: the selected key's look (icon, label, color, image, live text/image), how it
   changes with a live value (per state: color, icon, label), and its actions: each
   trigger runs a list of actions, from any modules, in order.
-- The status bar shows config problems as you edit; Save (Ctrl+S) is enabled when the
-  config is valid. Ctrl+Z / Ctrl+Shift+Z undo and redo. Closing with unsaved changes asks
-  first.
+- The status bar shows config problems as you edit; Save is enabled when the config is
+  valid. Closing with unsaved changes asks first.
+- Right-click a key for Copy / Cut / Paste / Clear. A copied key is a `[[button]]` block
+  of config text, so it can also be pasted into the config file (or copied from it).
+
+| Shortcut | Does |
+|----------|------|
+| Ctrl+S | save |
+| Ctrl+Z, Ctrl+Shift+Z (or Ctrl+Y) | undo, redo |
+| Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste the selected key |
+| Delete, Backspace | empty the selected key |
+| Arrow keys, Escape | move the selection, unselect |
 
 ## Configure by hand
 

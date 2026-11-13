@@ -18,7 +18,7 @@ path = "src/bin/gui.rs"
 ab_glyph = "0.2"            # draws text (labels, clock) on key images
 anyhow = "1"                # simple error handling
 chrono = { version = "0.4", default-features = false, features = ["clock"] }  # local time for the clock
-eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }  # GUI editor (egui)
+eframe = { version = "0.37", default-features = false, features = ["clipboard", "default_fonts", "glow", "wayland", "x11"] }  # GUI editor (egui)
 elgato-streamdeck = "0.14"  # talks to the Stream Deck over HID
 env_logger = "0.11"         # prints logs, controlled by RUST_LOG
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

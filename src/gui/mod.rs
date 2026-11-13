@@ -6,13 +6,17 @@
 //!   widgets.rs    small inputs shared by the panels (icon, color, value and action pickers)
 //!   edit.rs       config changes touching several buttons (pages, folders, swaps, presets)
 //!   history.rs    undo / redo
+//!   clipboard.rs  copy / cut / paste of keys
+//!   keyboard.rs   keyboard shortcuts
 //!
 //! The editor only edits the config file: saving it makes the daemon reload it.
 
+mod clipboard;
 mod edit;
 mod grid;
 mod history;
 mod inspector;
+mod keyboard;
 mod library;
 mod sidebar;
 mod widgets;
@@ -90,6 +94,8 @@ pub struct Editor {
     previews: grid::Previews,
     library: library::Library,
     history: history::History,
+    /// Last key copied or cut, for "Paste" in a key's right-click menu.
+    clipboard: Option<crate::config::Button>,
     /// Folder being renamed: (current name, text typed so far).
     renaming: Option<(String, String)>,
     /// Result of the last save or rename, shown in the status bar.
@@ -110,6 +116,7 @@ impl Editor {
             previews: grid::Previews::default(),
             library: library::Library::default(),
             history: history::History::new(&config),
+            clipboard: None,
             renaming: None,
             config,
             message: String::new(),
@@ -213,35 +220,6 @@ impl Editor {
         }
     }
 
-    /// Ctrl+S saves, Ctrl+Z undoes, Ctrl+Shift+Z redoes; Delete clears the selected key
-    /// (unless typing in a text field).
-    fn keyboard(&mut self, ctx: &egui::Context, can_save: bool) {
-        let shortcut = |modifiers, key| egui::KeyboardShortcut::new(modifiers, key);
-        let save = shortcut(egui::Modifiers::COMMAND, egui::Key::S);
-        // Checked before undo: Ctrl+Shift+Z also matches Ctrl+Z.
-        let redo = shortcut(
-            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-            egui::Key::Z,
-        );
-        let undo = shortcut(egui::Modifiers::COMMAND, egui::Key::Z);
-        if ctx.input_mut(|i| i.consume_shortcut(&save)) && can_save {
-            self.save();
-        }
-        if !ctx.egui_wants_keyboard_input() {
-            if ctx.input_mut(|i| i.consume_shortcut(&redo)) {
-                self.redo();
-            } else if ctx.input_mut(|i| i.consume_shortcut(&undo)) {
-                self.undo();
-            }
-        }
-        if !ctx.egui_wants_keyboard_input()
-            && ctx.input(|i| i.key_pressed(egui::Key::Delete))
-            && let Some(key) = self.selected
-        {
-            self.clear_key(key);
-        }
-    }
-
     /// Asks before closing the window with unsaved changes.
     fn on_close_request(&mut self, ctx: &egui::Context, dirty: bool) {
         if ctx.input(|i| i.viewport().close_requested()) && dirty && !self.closing {
@@ -292,7 +270,7 @@ impl eframe::App for Editor {
         let dirty = self.is_dirty();
         let can_save = dirty && check.is_ok();
         let ctx = ui.ctx().clone();
-        self.keyboard(&ctx, can_save);
+        keyboard::handle(self, &ctx, can_save);
         self.on_close_request(&ctx, dirty);
 
         egui::Panel::top("top").show(ui, |ui| self.top_bar(ui, can_save, dirty));

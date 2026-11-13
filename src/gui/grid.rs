@@ -8,7 +8,7 @@ use std::time::Duration;
 use eframe::egui;
 use image::DynamicImage;
 
-use super::library::PresetPayload;
+use super::library::Dragged;
 use super::{Editor, edit};
 use crate::config::{Config, ValueRef};
 use crate::pages::View;
@@ -51,7 +51,8 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     if ed.view == View::Shared {
         ui.weak("Keys set here appear on every page, unless a page has its own key at that place.");
     } else {
-        ui.weak("Click a key to edit it. Drag a key onto another one to swap them.");
+        ui.weak("Click a key to edit it, drag it onto another to swap them, right-click for more.");
+        ui.weak("Ctrl+C / X / V copy, cut, paste · Delete empties · arrows move · Ctrl+Z undoes");
     }
     ui.add_space(16.0);
 
@@ -60,6 +61,8 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     let mut clicked = None;
     let mut swap = None;
     let mut dropped = None;
+    let mut command = None;
+    let can_paste = ed.clipboard.is_some();
     let width = 5.0 * KEY_PX + 4.0 * GAP;
     ui.horizontal(|ui| {
         ui.add_space(((ui.available_width() - width) / 2.0).max(0.0)); // center the grid
@@ -69,17 +72,22 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
                 // Keys inherited from "All pages" are edited there, so they don't move here.
                 let inherited = ed.config.shows_shared(&ed.view, key);
                 let response = key_cell(ui, &texture, ed.selected == Some(key), inherited);
-                if response.clicked() {
+                if response.clicked() || response.secondary_clicked() {
                     clicked = Some(key);
                 }
-                if response.dragged() && !inherited {
-                    response.dnd_set_drag_payload(key);
+                response.context_menu(|ui| {
+                    if let Some(chosen) = key_menu(ui, can_paste) {
+                        command = Some((chosen, key));
+                    }
+                });
+                // Called every frame: egui only keeps the payload on the frame the drag starts.
+                if !inherited {
+                    response.dnd_set_drag_payload(Dragged::Key(key));
                 }
-                if let Some(from) = response.dnd_release_payload::<u8>() {
-                    swap = Some((*from, key));
-                }
-                if let Some(payload) = response.dnd_release_payload::<PresetPayload>() {
-                    dropped = Some((key, payload.preset));
+                match response.dnd_release_payload::<Dragged>().as_deref() {
+                    Some(Dragged::Key(from)) => swap = Some((*from, key)),
+                    Some(Dragged::Preset(preset, _)) => dropped = Some((key, *preset)),
+                    None => {}
                 }
                 if key % 5 == 4 {
                     ui.end_row();
@@ -97,6 +105,19 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
         edit::swap_keys(&mut ed.config, &ed.view, from, to);
         ed.selected = Some(to);
     }
+    if let Some((chosen, key)) = command {
+        let ctx = ui.ctx().clone();
+        match chosen {
+            KeyCommand::Copy => ed.copy(&ctx, key),
+            KeyCommand::Cut => ed.cut(&ctx, key),
+            KeyCommand::Paste => {
+                if let Some(button) = ed.clipboard.clone() {
+                    ed.paste(key, button);
+                }
+            }
+            KeyCommand::Clear => ed.clear_key(key),
+        }
+    }
     if let Some((key, preset)) = dropped {
         match edit::place_preset(&mut ed.config, &ed.view, key, preset) {
             Ok(()) => ed.selected = Some(key),
@@ -105,6 +126,33 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     }
     // Keeps the clock key current.
     ui.ctx().request_repaint_after(Duration::from_secs(10));
+}
+
+/// What the right-click menu of a key can do.
+#[derive(Clone, Copy)]
+enum KeyCommand {
+    Copy,
+    Cut,
+    Paste,
+    Clear,
+}
+
+/// The right-click menu of a key. Returns the chosen command, if any.
+fn key_menu(ui: &mut egui::Ui, can_paste: bool) -> Option<KeyCommand> {
+    let mut chosen = None;
+    for (command, text, shortcut, enabled) in [
+        (KeyCommand::Copy, "Copy", "Ctrl+C", true),
+        (KeyCommand::Cut, "Cut", "Ctrl+X", true),
+        (KeyCommand::Paste, "Paste", "Ctrl+V", can_paste),
+        (KeyCommand::Clear, "Clear", "Delete", true),
+    ] {
+        let button = egui::Button::new(text).shortcut_text(shortcut);
+        if ui.add_enabled(enabled, button).clicked() {
+            chosen = Some(command);
+            ui.close();
+        }
+    }
+    chosen
 }
 
 fn key_cell(
@@ -123,10 +171,7 @@ fn key_cell(
 
     let stroke = if selected {
         Some(egui::Stroke::new(3.0, ui.visuals().selection.bg_fill))
-    } else if response.dnd_hover_payload::<u8>().is_some()
-        || response.dnd_hover_payload::<PresetPayload>().is_some()
-        || response.hovered()
-    {
+    } else if response.dnd_hover_payload::<Dragged>().is_some() || response.hovered() {
         Some(egui::Stroke::new(1.5, ui.visuals().weak_text_color()))
     } else {
         None

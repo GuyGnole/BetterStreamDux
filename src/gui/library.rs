@@ -11,11 +11,13 @@ use crate::screen;
 
 const TILE_PX: f32 = 64.0;
 
-/// What is dragged from the library onto a key.
-pub struct PresetPayload {
-    pub preset: &'static Preset,
-    /// Its preview, drawn under the pointer while dragging.
-    pub texture: egui::TextureId,
+/// What can be dragged in the editor. A single type, because egui's `take_payload`
+/// discards a payload of another type: checking for one kind would lose the other.
+pub enum Dragged {
+    /// A key of the grid, to swap with another.
+    Key(u8),
+    /// A library preset, with its preview drawn under the pointer while dragging.
+    Preset(&'static Preset, egui::TextureId),
 }
 
 /// The library's own state: which module tab, and the search text.
@@ -85,20 +87,19 @@ fn tile(ed: &mut Editor, ui: &mut egui::Ui, module: &ModuleInfo, preset: &'stati
             .add(image)
             .on_hover_cursor(egui::CursorIcon::Grab)
             .on_hover_text(format!("{} ({})", preset.name, module.name));
-        if response.dragged() {
-            response.dnd_set_drag_payload(PresetPayload {
-                preset,
-                texture: texture.id(),
-            });
-        }
+        // Called every frame: egui only keeps the payload on the frame the drag starts.
+        response.dnd_set_drag_payload(Dragged::Preset(preset, texture.id()));
         ui.add(egui::Label::new(egui::RichText::new(preset.name).small()).truncate());
     });
 }
 
 /// While a preset is dragged, draws its preview under the pointer.
 pub fn draw_dragged(ctx: &egui::Context) {
-    let Some(payload) = egui::DragAndDrop::payload::<PresetPayload>(ctx) else {
+    let Some(dragged) = egui::DragAndDrop::payload::<Dragged>(ctx) else {
         return;
+    };
+    let Dragged::Preset(_, texture) = *dragged else {
+        return; // a dragged key needs no preview: egui shows the move
     };
     let Some(pointer) = ctx.pointer_interact_pos() else {
         return;
@@ -106,10 +107,6 @@ pub fn draw_dragged(ctx: &egui::Context) {
     let layer = egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("dragged preset"));
     let rect = egui::Rect::from_center_size(pointer, egui::vec2(TILE_PX, TILE_PX));
     let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-    ctx.layer_painter(layer).image(
-        payload.texture,
-        rect,
-        uv,
-        egui::Color32::from_white_alpha(220),
-    );
+    ctx.layer_painter(layer)
+        .image(texture, rect, uv, egui::Color32::from_white_alpha(220));
 }

@@ -118,11 +118,17 @@ pub fn place_preset(config: &mut Config, view: &View, key: u8, preset: &Preset) 
             *action = action.replace(NEW_FOLDER, &folder);
         }
     }
+    put(config, view, key, button);
+    Ok(())
+}
+
+/// Puts `button` on `key` in `view`, replacing what was there.
+pub fn put(config: &mut Config, view: &View, key: u8, mut button: Button) {
+    button.place(view, key);
     config
         .buttons
         .retain(|b| !(b.key == key && b.view() == *view));
     config.buttons.push(button);
-    Ok(())
 }
 
 fn all_actions(button: &mut Button) -> impl Iterator<Item = &mut String> {
