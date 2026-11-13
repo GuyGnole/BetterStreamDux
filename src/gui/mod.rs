@@ -46,8 +46,8 @@ pub fn run() -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("BetterStreamDux")
             .with_app_id("betterstreamdux")
-            .with_inner_size([1240.0, 800.0])
-            .with_min_inner_size([1000.0, 640.0]),
+            .with_inner_size([1320.0, 820.0])
+            .with_min_inner_size([1100.0, 660.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -281,7 +281,7 @@ impl eframe::App for Editor {
             .show(ui, |ui| sidebar::show(self, ui));
         egui::Panel::right("key")
             .resizable(false)
-            .exact_size(380.0)
+            .exact_size(450.0)
             .show(ui, |ui| inspector::show(self, ui));
         egui::CentralPanel::default().show(ui, |ui| {
             grid::show(self, ui);

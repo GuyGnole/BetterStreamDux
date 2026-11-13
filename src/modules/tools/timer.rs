@@ -8,11 +8,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 
-use super::{Countdown, MINUTE, countdown_text, minutes, notify};
+use super::{Countdown, MINUTE, Notification, Tool, countdown_text, minutes};
 use crate::catalog::{
     Actions, Arg, ModuleInfo, action, action_with, preset, split_action, state, text,
 };
-use crate::modules::Module;
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "timer",
@@ -34,6 +33,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
             &["running", "paused", "done", "idle"],
         ),
     ],
+    instances: true,
     presets: &[
         preset(
             "Timer 5 min",
@@ -81,7 +81,7 @@ pub struct Timer {
     done: bool,
 }
 
-impl Timer {
+impl Tool for Timer {
     fn apply(&mut self, action: &str, now: Instant) -> Result<()> {
         self.done = false;
         match split_action(action) {
@@ -101,14 +101,18 @@ impl Timer {
         Ok(())
     }
 
-    /// Returns true when the countdown has just ended.
-    fn update(&mut self, now: Instant) -> bool {
+    /// When the countdown has just ended: "done", and an urgent notification.
+    fn update(&mut self, now: Instant) -> Option<Notification> {
         if !self.countdown.is_over(now) {
-            return false;
+            return None;
         }
         self.countdown = Countdown::Idle;
         self.done = true;
-        true
+        Some(Notification {
+            title: "Timer".into(),
+            text: "Time is up!".into(),
+            urgent: true,
+        })
     }
 
     fn value_at(&self, name: &str, now: Instant) -> Option<String> {
@@ -119,26 +123,6 @@ impl Timer {
             "status" => Some(self.countdown.status().into()),
             _ => None,
         }
-    }
-}
-
-impl Module for Timer {
-    fn name(&self) -> &'static str {
-        INFO.name
-    }
-
-    fn run(&mut self, action: &str) -> Result<()> {
-        self.apply(action, Instant::now())
-    }
-
-    fn tick(&mut self) {
-        if self.update(Instant::now()) {
-            notify("Timer", "Time is up!");
-        }
-    }
-
-    fn value(&self, name: &str) -> Option<String> {
-        self.value_at(name, Instant::now())
     }
 }
 
@@ -157,9 +141,9 @@ mod tests {
         );
         timer.apply("start 2", t).unwrap();
         assert_eq!(timer.value_at("remaining", t).as_deref(), Some("02:00"));
-        assert!(!timer.update(t + MINUTE));
-        assert!(timer.update(t + MINUTE * 2), "ends once");
-        assert!(!timer.update(t + MINUTE * 3));
+        assert!(timer.update(t + MINUTE).is_none());
+        assert!(timer.update(t + MINUTE * 2).is_some(), "ends once");
+        assert!(timer.update(t + MINUTE * 3).is_none());
         assert_eq!(timer.value_at("status", t).as_deref(), Some("done"));
         assert_eq!(timer.value_at("remaining", t).as_deref(), Some("00:00"));
     }

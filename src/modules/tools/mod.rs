@@ -1,7 +1,11 @@
 //! Small tools that live inside `BetterStreamDux` (no external app): timer, stopwatch,
-//! pomodoro, counter. Shared here: the countdown, time formatting, desktop notifications.
+//! pomodoro, counter. Shared here: copies by id (`Instances`), the countdown, time
+//! formatting, desktop notifications.
 //!
-//! Their logic takes the current time (`now`) as a parameter, so tests never wait.
+//! Each tool can have several independent copies, chosen by an id in the config:
+//! `timer.tea:start 4` and `timer.pasta:start 10` are two timers; `timer:start 5` uses
+//! the default one. Their logic takes the current time (`now`) as a parameter, so tests
+//! never wait.
 
 pub mod counter;
 pub mod pomodoro;
@@ -14,7 +18,96 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, ensure};
 use zbus::zvariant::Value;
 
+use crate::config::Config;
+use crate::modules::Module;
+
 pub const MINUTE: Duration = Duration::from_mins(1);
+
+/// One copy of a tool (one timer, one stopwatch...).
+pub trait Tool: Default {
+    fn apply(&mut self, action: &str, now: Instant) -> Result<()>;
+    fn value_at(&self, name: &str, now: Instant) -> Option<String>;
+    /// Called every tick: a notification to show when something just ended.
+    fn update(&mut self, _now: Instant) -> Option<Notification> {
+        None
+    }
+    fn configure(&mut self, _config: &Config) {}
+}
+
+/// A desktop notification.
+pub struct Notification {
+    pub title: String,
+    pub text: String,
+    /// Stays on screen until dismissed (instead of going to the notification list).
+    pub urgent: bool,
+}
+
+/// Every copy of one tool, by id ("" for the default copy). Copies are created on
+/// first use and are fully independent.
+pub struct Instances<T> {
+    name: &'static str,
+    all: HashMap<String, T>,
+    /// Last config, to configure copies created later.
+    config: Option<Config>,
+}
+
+impl<T: Tool> Instances<T> {
+    pub fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            all: HashMap::new(),
+            config: None,
+        }
+    }
+
+    fn copy(&mut self, instance: &str) -> &mut T {
+        let config = &self.config;
+        self.all.entry(instance.to_string()).or_insert_with(|| {
+            let mut tool = T::default();
+            if let Some(config) = config {
+                tool.configure(config);
+            }
+            tool
+        })
+    }
+}
+
+impl<T: Tool> Module for Instances<T> {
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn run(&mut self, instance: &str, action: &str) -> Result<()> {
+        self.copy(instance).apply(action, Instant::now())
+    }
+
+    fn value(&self, instance: &str, name: &str) -> Option<String> {
+        let now = Instant::now();
+        match self.all.get(instance) {
+            Some(tool) => tool.value_at(name, now),
+            None => T::default().value_at(name, now), // not used yet: shows as new
+        }
+    }
+
+    fn tick(&mut self) {
+        let now = Instant::now();
+        for (id, tool) in &mut self.all {
+            if let Some(mut notification) = tool.update(now) {
+                if !id.is_empty() {
+                    notification.title = format!("{} ({id})", notification.title);
+                }
+                notify(&notification);
+            }
+        }
+    }
+
+    fn configure(&mut self, config: &Config) {
+        self.config = Some(config.clone());
+        self.all
+            .values_mut()
+            .for_each(|tool| tool.configure(config));
+    }
+}
 
 /// A countdown that can be paused. Shared by the timer and the pomodoro.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -110,19 +203,33 @@ fn clock_text(seconds: u128) -> String {
 }
 
 /// Shows a desktop notification (with a sound if the desktop plays one), without blocking.
-pub fn notify(summary: &str, body: &str) {
-    let (summary, body) = (summary.to_string(), body.to_string());
+pub fn notify(notification: &Notification) {
+    log::info!(
+        "notification: {} - {}",
+        notification.title,
+        notification.text
+    );
+    let (title, text, urgent) = (
+        notification.title.clone(),
+        notification.text.clone(),
+        notification.urgent,
+    );
     std::thread::spawn(move || {
-        if let Err(err) = send_notification(&summary, &body) {
+        if let Err(err) = send_notification(&title, &text, urgent) {
             log::warn!("cannot show notification: {err:#}");
         }
     });
 }
 
 /// The freedesktop notification D-Bus call, understood by GNOME, KDE...
-fn send_notification(summary: &str, body: &str) -> Result<()> {
+fn send_notification(summary: &str, body: &str, urgent: bool) -> Result<()> {
     let bus = zbus::blocking::Connection::session()?;
-    let hints: HashMap<&str, Value> = HashMap::from([("sound-name", Value::from("complete"))]);
+    // Urgency 2 ("critical") stays on screen until dismissed; 1 is normal.
+    let urgency: u8 = if urgent { 2 } else { 1 };
+    let hints: HashMap<&str, Value> = HashMap::from([
+        ("sound-name", Value::from("complete")),
+        ("urgency", Value::from(urgency)),
+    ]);
     let no_actions: Vec<&str> = Vec::new();
     let replaces_id = 0u32;
     let default_timeout = -1i32;
@@ -150,6 +257,33 @@ mod tests {
     use super::*;
 
     const SECOND: Duration = Duration::from_secs(1);
+
+    #[test]
+    fn copies_with_different_ids_are_independent() {
+        let mut timers = Instances::<timer::Timer>::new("timer");
+        timers.run("tea", "start 4").unwrap();
+        timers.run("pasta", "start 10").unwrap();
+        timers.run("pasta", "pause_resume").unwrap();
+        let value = |id, name| timers.value(id, name).unwrap();
+        assert_eq!(value("tea", "status"), "running");
+        assert_eq!(value("pasta", "status"), "paused");
+        assert_eq!(
+            value("", "status"),
+            "idle",
+            "the default timer is untouched"
+        );
+        assert_eq!(value("never-used", "status"), "idle");
+    }
+
+    #[test]
+    fn notification_names_the_copy() {
+        let t = Instant::now();
+        let mut timer = timer::Timer::default();
+        timer.apply("start 1", t).unwrap();
+        let notification = timer.update(t + MINUTE).unwrap();
+        assert!(notification.urgent, "a timer's end stays on screen");
+        assert_eq!(notification.title, "Timer");
+    }
 
     #[test]
     fn countdown_pauses_and_resumes() {

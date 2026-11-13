@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::builtin::{self, DeckAction};
-use crate::config::{Button, Config, ValueRef, split_module};
+use crate::config::{Button, Config, ValueRef, split_instance, split_module};
 use crate::modules::Registry;
 use crate::pages::{Navigator, View};
 use crate::screen::{self, Screen};
@@ -67,7 +67,9 @@ impl Handler {
     /// A live value: built-in for "deck:...", otherwise asked to the module.
     fn value(&self, value: &ValueRef, clock: &str) -> Option<String> {
         if value.module != builtin::MODULE_NAME {
-            return self.modules.value(&value.module, &value.name);
+            return self
+                .modules
+                .value(&value.module, &value.instance, &value.name);
         }
         builtin::value(&value.name, clock, &self.nav.label(), self.brightness)
     }
@@ -138,7 +140,10 @@ impl Handler {
             Some((builtin::MODULE_NAME, rest)) => {
                 DeckAction::parse(rest).map(|a| self.run_deck_action(a))
             }
-            Some((module, rest)) => self.modules.run(module, rest),
+            Some((module, rest)) => {
+                let (module, instance) = split_instance(module);
+                self.modules.run(module, instance, rest)
+            }
             None => Err(anyhow::anyhow!("no module in '{action}'")),
         };
         if let Err(err) = result {
@@ -176,7 +181,7 @@ mod tests {
         fn name(&self) -> &'static str {
             "shell" // any action text is valid for the shell module
         }
-        fn run(&mut self, action: &str) -> anyhow::Result<()> {
+        fn run(&mut self, _instance: &str, action: &str) -> anyhow::Result<()> {
             self.0.borrow_mut().push(action.to_string());
             Ok(())
         }

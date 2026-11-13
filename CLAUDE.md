@@ -22,7 +22,7 @@ Rust app controlling an Elgato Stream Deck MK.2 on Fedora (Wayland). See README.
 - `Module::value()` is called every 50 ms tick: never block in it. Slow reads (D-Bus, sockets, HTTP) go in the module's background thread, shared through `Arc<Mutex<..>>`.
 - Document each module's actions and values in its `//!` header and in the README table.
 - New config fields go in `src/config/button.rs` (with `skip_serializing_if` for options), an editor input in `src/gui/inspector.rs`, and a line in the README field table. A format change needs a conversion in `src/config/migrate.rs` (users have existing configs).
-- Actions are always `module:action` strings; a trigger is a list. Presets are config-format TOML in each module's `INFO.presets`.
+- Actions are always `module:action` strings; a trigger is a list. Tools with several copies take an id: `module.id:action` (`split_instance`); a new tool implements `Tool` and is wrapped in `Instances<T>` (see `modules/tools/mod.rs`). Presets are config-format TOML in each module's `INFO.presets`.
 - Icons: names in `src/icons.rs` (a test checks every glyph exists in the bundled font).
 - New module: update the module table in README.md.
 

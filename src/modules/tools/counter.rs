@@ -1,8 +1,10 @@
-//! A counter, kept across restarts in `~/.local/state/betterstreamdux/counter.txt`.
+//! Counters, one per id (`counter.coffee:increment`, `display = "counter.coffee:count"`),
+//! kept across restarts in `~/.local/state/betterstreamdux/counters.toml`.
 //!
 //! Actions: `increment`, `decrement`, `reset`.
 //! Values:  `count`.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -21,6 +23,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         action("reset", "Back to 0"),
     ]),
     values: &[text("count", "The count", "3")],
+    instances: true,
     presets: &[
         preset(
             "Counter",
@@ -49,19 +52,20 @@ color = "#333333"
     ],
 };
 
-pub struct Counter {
-    count: i64,
+/// Every counter, by id ("" for the default one).
+pub struct Counters {
+    counts: BTreeMap<String, i64>,
 }
 
-impl Counter {
-    /// Loads the saved count (0 if there is none).
+impl Counters {
+    /// Loads the saved counts (none saved: all at 0).
     pub fn load() -> Self {
-        let count = file()
+        let counts = file()
             .and_then(|path| Ok(fs::read_to_string(path)?))
             .ok()
-            .and_then(|text| text.trim().parse().ok())
-            .unwrap_or(0);
-        Self { count }
+            .and_then(|text| toml::from_str(&text).ok())
+            .unwrap_or_else(old_single_count);
+        Self { counts }
     }
 
     fn save(&self) -> Result<()> {
@@ -69,9 +73,19 @@ impl Counter {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)?;
         }
-        fs::write(&path, self.count.to_string())
+        fs::write(&path, toml::to_string(&self.counts)?)
             .with_context(|| format!("cannot save {}", path.display()))
     }
+}
+
+/// Before ids, one count was saved in `counter.txt`: it becomes the default counter.
+fn old_single_count() -> BTreeMap<String, i64> {
+    let old = paths::state_dir().map(|dir| dir.join("counter.txt"));
+    let count = old
+        .ok()
+        .and_then(|path| fs::read_to_string(path).ok())
+        .and_then(|text| text.trim().parse().ok());
+    count.map(|c| (String::new(), c)).into_iter().collect()
 }
 
 /// The new count after `action`.
@@ -85,27 +99,38 @@ fn apply(count: i64, action: &str) -> Result<i64> {
 }
 
 fn file() -> Result<PathBuf> {
-    Ok(paths::state_dir()?.join("counter.txt"))
+    Ok(paths::state_dir()?.join("counters.toml"))
 }
 
-impl Module for Counter {
+impl Module for Counters {
     fn name(&self) -> &'static str {
         INFO.name
     }
 
-    fn run(&mut self, action: &str) -> Result<()> {
-        self.count = apply(self.count, action)?;
+    fn run(&mut self, instance: &str, action: &str) -> Result<()> {
+        let count = self.counts.get(instance).copied().unwrap_or(0);
+        self.counts
+            .insert(instance.to_string(), apply(count, action)?);
         self.save()
     }
 
-    fn value(&self, name: &str) -> Option<String> {
-        (name == "count").then(|| self.count.to_string())
+    fn value(&self, instance: &str, name: &str) -> Option<String> {
+        let count = self.counts.get(instance).copied().unwrap_or(0);
+        (name == "count").then(|| count.to_string())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_are_saved_by_id() {
+        let counts = BTreeMap::from([(String::new(), 3), ("coffee".to_string(), 2)]);
+        let text = toml::to_string(&counts).unwrap();
+        let back: BTreeMap<String, i64> = toml::from_str(&text).unwrap();
+        assert_eq!(back, counts);
+    }
 
     #[test]
     fn counts() {

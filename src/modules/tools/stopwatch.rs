@@ -7,9 +7,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 
-use super::elapsed_text;
+use super::{Tool, elapsed_text};
 use crate::catalog::{Actions, ModuleInfo, action, preset, state, text};
-use crate::modules::Module;
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "stopwatch",
@@ -22,6 +21,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         text("elapsed", "Time elapsed, like 01:23", "01:23"),
         state("status", "Stopwatch state", &["running", "paused", "idle"]),
     ],
+    instances: true,
     presets: &[preset(
         "Stopwatch",
         r##"
@@ -50,7 +50,7 @@ pub enum Stopwatch {
     },
 }
 
-impl Stopwatch {
+impl Tool for Stopwatch {
     fn apply(&mut self, action: &str, now: Instant) -> Result<()> {
         *self = match (action, &*self) {
             ("start_stop", Self::Idle) => Self::Running {
@@ -84,20 +84,6 @@ impl Stopwatch {
             "status" => Some(status.into()),
             _ => None,
         }
-    }
-}
-
-impl Module for Stopwatch {
-    fn name(&self) -> &'static str {
-        INFO.name
-    }
-
-    fn run(&mut self, action: &str) -> Result<()> {
-        self.apply(action, Instant::now())
-    }
-
-    fn value(&self, name: &str) -> Option<String> {
-        self.value_at(name, Instant::now())
     }
 }
 

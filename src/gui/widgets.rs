@@ -6,7 +6,7 @@ use std::path::Path;
 use eframe::egui;
 
 use crate::catalog::{self, Actions, Arg, ModuleInfo, ValueKind, join_action, split_action};
-use crate::config::{ValueRef, format_color, parse_color};
+use crate::config::{ValueRef, format_color, join_instance, parse_color, split_instance};
 use crate::icons::{self, ICONS};
 
 /// Width of text fields and dropdowns.
@@ -144,28 +144,65 @@ pub fn icon_file(ui: &mut egui::Ui, icon: &mut Option<String>) {
     });
 }
 
-/// Dropdown of every module's live values of one kind, e.g. "spotify:title".
+/// Dropdown of every module's live values of one kind, e.g. "spotify:title", plus an id
+/// field for modules with several copies ("tea" in "timer.tea:remaining").
 pub fn value_picker(ui: &mut egui::Ui, id: &str, value: &mut Option<ValueRef>, pick: Pick) {
-    let selected = value
+    let instance = value
         .as_ref()
-        .map_or("None".to_string(), ToString::to_string);
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(selected)
-        .width(WIDTH)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(value, None, "None");
-            for module in catalog::all() {
-                for info in module.values.iter().filter(|v| pick.accepts(v)) {
-                    let option = ValueRef {
-                        module: module.name.to_string(),
-                        name: info.name.to_string(),
-                    };
-                    let text = option.to_string();
-                    ui.selectable_value(value, Some(option), text)
-                        .on_hover_text(info.help);
+        .map(|v| v.instance.clone())
+        .unwrap_or_default();
+    let current = value.as_ref().map(|v| (v.module.clone(), v.name.clone()));
+    let mut chosen = current.clone();
+    ui.horizontal(|ui| {
+        let selected = current
+            .as_ref()
+            .map_or("None".to_string(), |(module, name)| {
+                format!("{module}:{name}")
+            });
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(selected)
+            .width(WIDTH - 70.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut chosen, None, "None");
+                for module in catalog::all() {
+                    for info in module.values.iter().filter(|v| pick.accepts(v)) {
+                        let option = (module.name.to_string(), info.name.to_string());
+                        let text = format!("{}:{}", module.name, info.name);
+                        ui.selectable_value(&mut chosen, Some(option), text)
+                            .on_hover_text(info.help);
+                    }
                 }
-            }
-        });
+            });
+        if chosen != current {
+            *value = chosen.map(|(module, name)| ValueRef {
+                // Keep the id when switching between values of the same module.
+                instance: if current.as_ref().is_some_and(|(m, _)| *m == module) {
+                    instance.clone()
+                } else {
+                    String::new()
+                },
+                module,
+                name,
+            });
+        }
+        if let Some(value) = value
+            && catalog::find(&value.module).is_some_and(|m| m.instances)
+        {
+            id_field(ui, &mut value.instance);
+        }
+    });
+}
+
+/// The id of a module copy ("tea" in `timer.tea`). Empty: the default copy.
+fn id_field(ui: &mut egui::Ui, instance: &mut String) {
+    ui.add(
+        egui::TextEdit::singleline(instance)
+            .hint_text("id")
+            .desired_width(50.0),
+    )
+    .on_hover_text(
+        "Which copy: keys with the same id share one timer/counter/... Empty: the default one.",
+    );
 }
 
 /// A trigger's actions, run in order: one row each, "×" removes, "+ Add action" adds.
@@ -191,16 +228,18 @@ pub fn action_list(ui: &mut egui::Ui, id: &str, actions: &mut Vec<String>, choic
     }
 }
 
-/// One "module:action": module dropdown, then the action and its argument.
+/// One "module:action": module dropdown, its id if it has copies, then the action and
+/// its argument.
 fn action_row(ui: &mut egui::Ui, id: &str, action: &mut String, choices: &Choices) {
     // Not `split_module`: "spotify:" (module chosen, action not yet) must still show the module.
     let (module, rest) = action.split_once(':').unwrap_or(("", action));
-    let (module, rest) = (module.to_string(), rest.to_string());
+    let (module, instance) = split_instance(module);
+    let (module, mut instance, rest) = (module.to_string(), instance.to_string(), rest.to_string());
 
     let mut chosen = module.clone();
     egui::ComboBox::from_id_salt((id, "module"))
         .selected_text(if module.is_empty() { "Module" } else { &module })
-        .width(90.0)
+        .width(80.0)
         .show_ui(ui, |ui| {
             for info in catalog::all() {
                 ui.selectable_value(&mut chosen, info.name.to_string(), info.name)
@@ -214,11 +253,18 @@ fn action_row(ui: &mut egui::Ui, id: &str, action: &mut String, choices: &Choice
     let Some(info) = catalog::find(&module) else {
         return;
     };
+    if info.instances {
+        id_field(ui, &mut instance);
+    }
     let mut current = (!rest.is_empty()).then_some(rest.clone());
     action_picker(ui, id, info, &mut current, choices);
-    let new = current.unwrap_or_default();
-    if new != rest {
-        *action = format!("{module}:{new}");
+    let new = format!(
+        "{}:{}",
+        join_instance(&module, &instance),
+        current.unwrap_or_default()
+    );
+    if new != *action {
+        *action = new;
     }
 }
 
@@ -240,7 +286,7 @@ fn action_picker(
     let mut chosen = name.to_string();
     egui::ComboBox::from_id_salt((id, "action"))
         .selected_text(if name.is_empty() { "Action" } else { name })
-        .width(120.0)
+        .width(110.0)
         .show_ui(ui, |ui| {
             for info in *list {
                 ui.selectable_value(&mut chosen, info.name.to_string(), info.name)
@@ -283,7 +329,7 @@ fn arg_input(ui: &mut egui::Ui, id: &str, kind: Arg, arg: &mut String, choices: 
         Arg::Page => {
             egui::ComboBox::from_id_salt((id, "page"))
                 .selected_text(format!("Page {arg}"))
-                .width(80.0)
+                .width(70.0)
                 .show_ui(ui, |ui| {
                     for page in 1..=choices.page_count {
                         ui.selectable_value(arg, page.to_string(), format!("Page {page}"));

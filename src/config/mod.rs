@@ -15,7 +15,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
-pub use self::button::{Button, ColorBy, Look, LookBy, ValueRef, WhilePress, split_module};
+pub use self::button::{
+    Button, ColorBy, Look, LookBy, ValueRef, WhilePress, join_instance, split_instance,
+    split_module,
+};
 use crate::builtin::{self, DeckAction};
 use crate::catalog::{self, ValueKind};
 use crate::icons;
@@ -287,8 +290,11 @@ impl Config {
         let (module, rest) = split_module(action).with_context(|| {
             format!("'{action}' should look like module:action, e.g. spotify:next")
         })?;
+        ensure!(!module.ends_with('.'), "missing id after '.' in '{action}'");
+        let (module, instance) = split_instance(module);
         let info = catalog::find(module)
             .with_context(|| format!("unknown module '{module}' in '{action}'"))?;
+        info.check_instance(instance)?;
         info.check_action(rest)?;
         if module != builtin::MODULE_NAME {
             return Ok(());
@@ -314,6 +320,7 @@ impl Config {
 fn check_value(value: &ValueRef, kind: ValueKind) -> Result<()> {
     let module = catalog::find(&value.module)
         .with_context(|| format!("unknown module '{}' in '{value}'", value.module))?;
+    module.check_instance(&value.instance)?;
     let info = module
         .value(&value.name)
         .with_context(|| format!("unknown value '{value}'"))?;
@@ -400,6 +407,20 @@ mod tests {
             ("action without module", OK.replace("shell:a", "a")),
             ("unknown module", OK.replace("shell:a", "fly:a")),
             ("unknown action", OK.replace("shell:a", "spotify:fly")),
+            (
+                "id on a module without ids",
+                OK.replace("shell:a", "spotify.x:next"),
+            ),
+            ("bad id", OK.replace("shell:a", "timer.t e:cancel")),
+            ("empty id", OK.replace("shell:a", "timer.:cancel")),
+            (
+                "bad id in a value",
+                format!("{OK}display = \"counter.a/b:count\"\n"),
+            ),
+            (
+                "empty id in a value",
+                format!("{OK}display = \"counter.:count\"\n"),
+            ),
             ("unknown symbol", format!("{OK}symbol = \"nope\"\n")),
             (
                 "bad state color",

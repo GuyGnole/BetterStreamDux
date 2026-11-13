@@ -17,7 +17,10 @@ const TICK: Duration = Duration::from_millis(50);
 const RELOAD_CHECK: Duration = Duration::from_secs(1);
 
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // zbus and tracing log every D-Bus handshake at "info": keep them for problems only.
+    let default_filter = "info,zbus=warn,tracing=warn";
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
+        .init();
 
     let config_path = match std::env::args().nth(1) {
         Some(path) => PathBuf::from(path),

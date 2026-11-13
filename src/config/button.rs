@@ -2,6 +2,8 @@
 //!
 //! Actions are written "module:action", e.g. `spotify:next` or `deck:go_to_page 2`.
 //! Each trigger takes one action or a list, run in order.
+//! Tools can have several independent copies, chosen by an id after the module name:
+//! `timer.tea:start 4` and `timer.pasta:start 10` are two timers.
 
 use std::collections::BTreeMap;
 
@@ -80,6 +82,8 @@ pub struct WhilePress {
 #[serde(try_from = "String", into = "String")]
 pub struct ValueRef {
     pub module: String,
+    /// Which copy of the module ("tea" in "timer.tea:remaining"). Empty: the default one.
+    pub instance: String,
     pub name: String,
 }
 
@@ -88,10 +92,17 @@ impl TryFrom<String> for ValueRef {
 
     fn try_from(text: String) -> Result<Self, String> {
         match split_module(&text) {
-            Some((module, name)) => Ok(Self {
-                module: module.to_string(),
-                name: name.to_string(),
-            }),
+            Some((module, _)) if module.ends_with('.') => {
+                Err(format!("missing id after '.' in '{text}'"))
+            }
+            Some((module, name)) => {
+                let (module, instance) = split_instance(module);
+                Ok(Self {
+                    module: module.to_string(),
+                    instance: instance.to_string(),
+                    name: name.to_string(),
+                })
+            }
             None => Err(format!(
                 "'{text}' should look like module:value, e.g. spotify:title"
             )),
@@ -107,7 +118,12 @@ impl From<ValueRef> for String {
 
 impl std::fmt::Display for ValueRef {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}:{}", self.module, self.name)
+        write!(
+            f,
+            "{}:{}",
+            join_instance(&self.module, &self.instance),
+            self.name
+        )
     }
 }
 
@@ -146,6 +162,20 @@ pub struct ColorBy {
 pub fn split_module(text: &str) -> Option<(&str, &str)> {
     text.split_once(':')
         .filter(|(module, rest)| !module.is_empty() && !rest.is_empty())
+}
+
+/// Splits "timer.tea" into ("timer", "tea"). Without an id: ("timer", "").
+pub fn split_instance(module: &str) -> (&str, &str) {
+    module.split_once('.').unwrap_or((module, ""))
+}
+
+/// The reverse of [`split_instance`].
+pub fn join_instance(module: &str, instance: &str) -> String {
+    if instance.is_empty() {
+        module.to_string()
+    } else {
+        format!("{module}.{instance}")
+    }
 }
 
 // serde's skip_serializing_if passes a reference.
@@ -284,6 +314,20 @@ mod tests {
             "single: no brackets"
         );
         assert!(text.contains("long_press = [\"spotify:stop\", \"deck:back\"]"));
+    }
+
+    #[test]
+    fn values_and_actions_can_name_an_id() {
+        let value = ValueRef::try_from("timer.tea:remaining".to_string()).unwrap();
+        assert_eq!(
+            (value.module.as_str(), value.instance.as_str()),
+            ("timer", "tea")
+        );
+        assert_eq!(value.to_string(), "timer.tea:remaining");
+        let plain = ValueRef::try_from("timer:remaining".to_string()).unwrap();
+        assert_eq!(plain.instance, "");
+        assert_eq!(split_instance("counter.coffee"), ("counter", "coffee"));
+        assert_eq!(join_instance("counter", ""), "counter");
     }
 
     #[test]

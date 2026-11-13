@@ -77,6 +77,13 @@ The config is TOML. Each `[[button]]` is one key on one page or folder:
 A trigger takes one action or a list, run in order, from any modules:
 `short_press = ["spotify:play_pause", "deck:open_folder Music"]`.
 
+**Ids**: timer, stopwatch, pomodoro and counter can have several independent copies,
+chosen by an id after the module name: `timer.tea:start 4` and `timer.pasta:start 10` are
+two timers, and `display = "timer.tea:remaining"` shows the first one. Keys with the same
+id share one copy (e.g. `counter.coffee:increment` and `display = "counter.coffee:count"`).
+Without an id (`timer:start 5`) the default copy is used. Ids use letters, digits, `-`
+and `_`; the editor shows an "id" field next to these modules.
+
 Older configs (`module = "spotify"` with `short_press = "next"`, and `color_by`) are
 converted automatically when loaded; the editor saves the new format.
 
@@ -118,10 +125,10 @@ mixed triggers, missing folder, typos...) are reported at startup.
 | `spotify` | `play_pause`, `play`, `pause`, `next`, `previous`, `stop`, `volume_up`, `volume_down`, `seek_forward`, `seek_back` | `status`, `title`, `artist`, `album`, `volume`, `cover` | working (MPRIS, no account needed) |
 | `discord` | `mute`, `unmute`, `toggle_mute`, `deafen`, `undeafen`, `toggle_deafen`, `join_channel ID`, `leave_channel` | `status`, `muted`, `deafened`, `channel` | working (needs the setup below) |
 | `shell`   | any command line | | working |
-| `timer`   | `start N` (minutes), `pause_resume`, `add_minute`, `cancel` | `remaining`, `status` | built-in, notifies when done |
-| `stopwatch` | `start_stop`, `reset` | `elapsed`, `status` | built-in |
-| `pomodoro` | `start_pause`, `skip`, `reset` | `remaining`, `phase`, `status`, `done` | built-in, notifies at each phase |
-| `counter` | `increment`, `decrement`, `reset` | `count` | built-in, kept across restarts |
+| `timer`   | `start N` (minutes), `pause_resume`, `add_minute`, `cancel` | `remaining`, `status` | built-in, ids, notifies when done (stays on screen) |
+| `stopwatch` | `start_stop`, `reset` | `elapsed`, `status` | built-in, ids |
+| `pomodoro` | `start_pause`, `skip`, `reset` | `remaining`, `phase`, `status`, `done` | built-in, ids, notifies at each phase |
+| `counter` | `increment`, `decrement`, `reset` | `count` | built-in, ids, kept across restarts |
 | `deck`    | `next_page`, `previous_page`, `go_to_page N`, `open_folder NAME`, `back`, `brightness_up`, `brightness_down` | `clock`, `page_number`, `brightness` | built-in |
 
 Spotify shuffle/repeat are not supported: the Linux app ignores them over MPRIS.

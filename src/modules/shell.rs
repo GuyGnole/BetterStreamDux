@@ -14,6 +14,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
     description: "Runs any command line",
     actions: Actions::Command,
     values: &[],
+    instances: false,
     presets: &[preset(
         "Run command",
         r##"
@@ -32,7 +33,7 @@ impl Module for Shell {
         INFO.name
     }
 
-    fn run(&mut self, action: &str) -> Result<()> {
+    fn run(&mut self, _instance: &str, action: &str) -> Result<()> {
         // spawn() does not wait: a slow command never blocks the deck.
         Command::new("sh")
             .args(["-c", action])

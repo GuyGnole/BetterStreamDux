@@ -49,6 +49,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         state("deafened", "Deafened", &["true", "false"]),
         text("channel", "Current voice channel name", "General"),
     ],
+    instances: false,
     presets: &[
         preset(
             "Mute",
@@ -129,16 +130,16 @@ impl Module for Discord {
         INFO.name
     }
 
-    fn run(&mut self, action: &str) -> Result<()> {
+    fn run(&mut self, _instance: &str, action: &str) -> Result<()> {
         let command = Command::parse(action)?;
-        let status = self.value("status").unwrap_or_default();
+        let status = self.value("", "status").unwrap_or_default();
         ensure!(status == "connected", "Discord is not connected ({status})");
         self.commands
             .send(command)
             .context("discord thread stopped")
     }
 
-    fn value(&self, name: &str) -> Option<String> {
+    fn value(&self, _instance: &str, name: &str) -> Option<String> {
         self.values.lock().ok()?.get(name).cloned()
     }
 }

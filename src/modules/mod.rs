@@ -33,12 +33,14 @@ pub trait Module {
     /// Name used in `config.toml` (`module = "..."`).
     fn name(&self) -> &'static str;
 
-    /// Runs one action, e.g. `"play_pause"`.
-    fn run(&mut self, action: &str) -> Result<()>;
+    /// Runs one action, e.g. `"play_pause"`, on one copy of the module: `instance` is the
+    /// id after the module name ("tea" in `timer.tea:start 4`), empty for the default copy.
+    /// Modules without ids ignore it (the config check rejects ids for them).
+    fn run(&mut self, instance: &str, action: &str) -> Result<()>;
 
     /// A live value for keys (`display = "module:name"`), e.g. `"title"`.
     /// Called every tick: must be instant, so do slow work in a background thread.
-    fn value(&self, _name: &str) -> Option<String> {
+    fn value(&self, _instance: &str, _name: &str) -> Option<String> {
         None
     }
 
@@ -61,10 +63,16 @@ impl Registry {
             Box::new(spotify::Spotify::start()) as Box<dyn Module>,
             Box::new(discord::Discord::start()),
             Box::new(shell::Shell),
-            Box::new(tools::timer::Timer::default()),
-            Box::new(tools::stopwatch::Stopwatch::default()),
-            Box::new(tools::pomodoro::Pomodoro::default()),
-            Box::new(tools::counter::Counter::load()),
+            Box::new(tools::Instances::<tools::timer::Timer>::new(
+                tools::timer::INFO.name,
+            )),
+            Box::new(tools::Instances::<tools::stopwatch::Stopwatch>::new(
+                tools::stopwatch::INFO.name,
+            )),
+            Box::new(tools::Instances::<tools::pomodoro::Pomodoro>::new(
+                tools::pomodoro::INFO.name,
+            )),
+            Box::new(tools::counter::Counters::load()),
         ])
     }
 
@@ -74,15 +82,15 @@ impl Registry {
         Self { modules }
     }
 
-    pub fn run(&mut self, module: &str, action: &str) -> Result<()> {
+    pub fn run(&mut self, module: &str, instance: &str, action: &str) -> Result<()> {
         match self.modules.get_mut(module) {
-            Some(m) => m.run(action),
+            Some(m) => m.run(instance, action),
             None => bail!("unknown module '{module}'"),
         }
     }
 
-    pub fn value(&self, module: &str, name: &str) -> Option<String> {
-        self.modules.get(module)?.value(name)
+    pub fn value(&self, module: &str, instance: &str, name: &str) -> Option<String> {
+        self.modules.get(module)?.value(instance, name)
     }
 
     pub fn tick(&mut self) {

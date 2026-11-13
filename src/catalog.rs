@@ -13,6 +13,8 @@ pub struct ModuleInfo {
     pub description: &'static str,
     pub actions: Actions,
     pub values: &'static [ValueInfo],
+    /// Can have several independent copies, chosen by id (`timer.tea:start 4`).
+    pub instances: bool,
     /// Ready-made buttons, shown in the editor's library.
     pub presets: &'static [Preset],
 }
@@ -153,6 +155,23 @@ impl ModuleInfo {
         self.values.iter().find(|v| v.name == name)
     }
 
+    /// Checks the id after the module name ("tea" in `timer.tea`); empty is always fine.
+    pub fn check_instance(&self, instance: &str) -> Result<()> {
+        if instance.is_empty() {
+            return Ok(());
+        }
+        ensure!(
+            self.instances,
+            "'{}' has no ids, only one copy (ids are for timer, stopwatch, pomodoro, counter)",
+            self.name
+        );
+        ensure!(
+            valid_id(instance),
+            "id '{instance}' may only use letters, digits, '-' and '_'"
+        );
+        Ok(())
+    }
+
     /// Checks that `action` is one of this module's actions, with a valid argument.
     pub fn check_action(&self, action: &str) -> Result<()> {
         if let Actions::Command = self.actions {
@@ -190,6 +209,14 @@ impl ModuleInfo {
         }
         Ok(())
     }
+}
+
+/// An instance id: letters, digits, '-' and '_'.
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Splits `"go_to_page 3"` into `("go_to_page", Some("3"))`.

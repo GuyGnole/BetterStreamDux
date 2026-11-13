@@ -28,6 +28,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         ),
         text("brightness", "Brightness, like 60%", "60%"),
     ],
+    instances: false,
     presets: &[
         preset(
             "Next page",

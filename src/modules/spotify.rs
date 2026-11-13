@@ -51,6 +51,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         text("volume", "Spotify volume, like 60%", "60%"),
         image("cover", "Album cover image"),
     ],
+    instances: false,
     presets: &[
         preset(
             "Play / Pause",
@@ -176,7 +177,7 @@ impl Module for Spotify {
         INFO.name
     }
 
-    fn run(&mut self, action: &str) -> Result<()> {
+    fn run(&mut self, _instance: &str, action: &str) -> Result<()> {
         let player = connect()?;
         let result = match action {
             "play_pause" => player.play_pause(),
@@ -198,7 +199,7 @@ impl Module for Spotify {
         result.context("is Spotify running?")
     }
 
-    fn value(&self, name: &str) -> Option<String> {
+    fn value(&self, _instance: &str, name: &str) -> Option<String> {
         self.values.lock().ok()?.get(name).cloned()
     }
 }

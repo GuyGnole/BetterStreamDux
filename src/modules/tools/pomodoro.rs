@@ -10,10 +10,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 
-use super::{Countdown, MINUTE, countdown_text, notify};
+use super::{Countdown, MINUTE, Notification, Tool, countdown_text};
 use crate::catalog::{Actions, ModuleInfo, action, preset, state, text};
 use crate::config::{Config, PomodoroSettings};
-use crate::modules::Module;
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "pomodoro",
@@ -33,6 +32,7 @@ pub const INFO: ModuleInfo = ModuleInfo {
         state("status", "Pomodoro state", &["running", "paused", "idle"]),
         text("done", "Work rounds finished since reset", "2"),
     ],
+    instances: true,
     presets: &[
         preset(
             "Pomodoro",
@@ -76,27 +76,8 @@ pub struct Pomodoro {
 }
 
 impl Pomodoro {
-    fn apply(&mut self, action: &str, now: Instant) -> Result<()> {
-        match action {
-            "start_pause" if self.phase.is_none() => self.begin(Phase::Work, now),
-            "start_pause" => self.countdown.pause_resume(now),
-            "skip" if self.phase.is_some() => {
-                self.next_phase(now);
-            }
-            "skip" => {}
-            "reset" => {
-                *self = Self {
-                    settings: self.settings.clone(),
-                    ..Self::default()
-                }
-            }
-            _ => bail!("unknown pomodoro action '{action}'"),
-        }
-        Ok(())
-    }
-
     /// When the phase is over, starts the next one and returns it.
-    fn update(&mut self, now: Instant) -> Option<Phase> {
+    fn advance(&mut self, now: Instant) -> Option<Phase> {
         self.countdown.is_over(now).then(|| self.next_phase(now))
     }
 
@@ -129,6 +110,27 @@ impl Pomodoro {
         };
         MINUTE * minutes
     }
+}
+
+impl Tool for Pomodoro {
+    fn apply(&mut self, action: &str, now: Instant) -> Result<()> {
+        match action {
+            "start_pause" if self.phase.is_none() => self.begin(Phase::Work, now),
+            "start_pause" => self.countdown.pause_resume(now),
+            "skip" if self.phase.is_some() => {
+                self.next_phase(now);
+            }
+            "skip" => {}
+            "reset" => {
+                *self = Self {
+                    settings: self.settings.clone(),
+                    ..Self::default()
+                }
+            }
+            _ => bail!("unknown pomodoro action '{action}'"),
+        }
+        Ok(())
+    }
 
     fn value_at(&self, name: &str, now: Instant) -> Option<String> {
         match name {
@@ -147,36 +149,25 @@ impl Pomodoro {
             _ => None,
         }
     }
-}
 
-impl Module for Pomodoro {
-    fn name(&self) -> &'static str {
-        INFO.name
-    }
-
-    fn run(&mut self, action: &str) -> Result<()> {
-        self.apply(action, Instant::now())
-    }
-
-    fn tick(&mut self) {
-        let Some(phase) = self.update(Instant::now()) else {
-            return;
-        };
+    fn update(&mut self, now: Instant) -> Option<Notification> {
+        let phase = self.advance(now)?;
         let minutes = self.length(phase).as_secs() / 60;
-        match phase {
-            Phase::Work => notify("Back to work", &format!("{minutes} minutes of focus")),
-            Phase::Break => notify("Short break", &format!("Take {minutes} minutes")),
-            Phase::LongBreak => notify("Long break", &format!("Well done! Take {minutes} minutes")),
-        }
+        let (title, text) = match phase {
+            Phase::Work => ("Back to work", format!("{minutes} minutes of focus")),
+            Phase::Break => ("Short break", format!("Take {minutes} minutes")),
+            Phase::LongBreak => ("Long break", format!("Well done! Take {minutes} minutes")),
+        };
+        Some(Notification {
+            title: title.into(),
+            text,
+            urgent: false,
+        })
     }
 
     /// New durations apply from the next phase.
     fn configure(&mut self, config: &Config) {
         self.settings = config.pomodoro.clone();
-    }
-
-    fn value(&self, name: &str) -> Option<String> {
-        self.value_at(name, Instant::now())
     }
 }
 
@@ -208,7 +199,7 @@ mod tests {
         let mut phases = Vec::new();
         for _ in 0..4 {
             t += p.countdown.remaining(t).unwrap();
-            phases.push(p.update(t).unwrap());
+            phases.push(p.advance(t).unwrap());
         }
         assert_eq!(
             phases,
@@ -224,7 +215,7 @@ mod tests {
         p.apply("start_pause", t).unwrap();
         p.apply("start_pause", t + MINUTE).unwrap();
         assert_eq!(p.value_at("status", t).as_deref(), Some("paused"));
-        assert_eq!(p.update(t + MINUTE * 60), None, "paused: never ends");
+        assert_eq!(p.advance(t + MINUTE * 60), None, "paused: never ends");
         p.apply("skip", t).unwrap();
         assert_eq!(p.value_at("phase", t).as_deref(), Some("break"));
         p.apply("reset", t).unwrap();
