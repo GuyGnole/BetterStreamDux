@@ -36,10 +36,14 @@ second. An invalid file is refused and the current config keeps running.
   Click a key to edit it, drag a key onto another one to swap them, Delete empties it.
   Keys coming from "All pages" are marked "shared": edit them for all pages, or replace
   them on one page only.
-- Right: the selected key's look (label, color, icon, live values) and action (module,
-  press or hold, and the actions, chosen from lists).
+- Below the keys, the library: ready-made buttons from every module (with icons, colors,
+  live looks and actions already set). Drag one onto a key to place it, then adjust it.
+- Right: the selected key's look (icon, label, color, image, live text/image), how it
+  changes with a live value (per state: color, icon, label), and its actions: each
+  trigger runs a list of actions, from any modules, in order.
 - The status bar shows config problems as you edit; Save (Ctrl+S) is enabled when the
-  config is valid. Closing with unsaved changes asks first.
+  config is valid. Ctrl+Z / Ctrl+Shift+Z undo and redo. Closing with unsaved changes asks
+  first.
 
 ## Configure by hand
 
@@ -51,14 +55,21 @@ The config is TOML. Each `[[button]]` is one key on one page or folder:
 | `page` | main page 1-5 (default 1) |
 | `folder` | folder name, instead of `page` |
 | `shared` | `true`: shown on every main page (not in folders), instead of `page`. A page's own key at the same place wins |
-| `label` | fixed text |
+| `symbol` | icon: a name from `src/icons.rs` (`play`, `mic`, `timer`, `folder`...) or any emoji |
+| `label` | fixed text (under the icon if there is one) |
 | `color` | background, `"#RRGGBB"` |
-| `icon` | image file (png/jpg), replaces the color |
+| `icon` | image file (png/jpg) as background, replaces the color |
 | `display` | live text, e.g. `"spotify:title"`, replaces the label |
-| `icon_value` | live image, e.g. `"spotify:cover"`, replaces the icon |
-| `color_by` | color from a live value: `{ value = "spotify:status", colors = { playing = "#1DB954" } }` |
-| `module` | `deck`, `spotify`, `discord` or `shell` (needed by the triggers) |
+| `icon_value` | live background image, e.g. `"spotify:cover"`, replaces `icon` |
+| `look_by` | look depending on a live value, per state: `{ value = "spotify:status", states = { playing = { symbol = "pause", color = "#1DB954" } } }` (each state may set `color`, `symbol`, `label`) |
 | `short_press`, `long_press`, `while_press` | the actions, see Triggers |
+
+**Actions** are written `"module:action"`, e.g. `"spotify:next"` or `"deck:go_to_page 2"`.
+A trigger takes one action or a list, run in order, from any modules:
+`short_press = ["spotify:play_pause", "deck:open_folder Music"]`.
+
+Older configs (`module = "spotify"` with `short_press = "next"`, and `color_by`) are
+converted automatically when loaded; the editor saves the new format.
 
 Top-level fields: `brightness` (10-100), `long_press_ms` (default 500), `pages` (number of
 main pages, optional).
@@ -78,11 +89,9 @@ rounds = 4          # a long break after this many work rounds
 deck action. `back` returns to that page. Folders cannot open folders, and every folder
 needs a `back` key.
 
-**Look**: `color`, `icon`, `label` (fixed text).
-
 **Live look**: modules publish values written `module:value` (e.g. `spotify:title`).
-`display` shows one as text, `icon_value` as an image, `color_by` picks the color from it.
-When a value is unavailable (e.g. Spotify closed), the fixed field is used instead.
+`display` shows one as text, `icon_value` as an image, `look_by` changes the look for
+some states. When a value is unavailable (e.g. Spotify closed), the fixed fields are used.
 
 **Triggers**:
 
@@ -90,7 +99,7 @@ When a value is unavailable (e.g. Spotify closed), the fixed field is used inste
 |---------------|----------------------------------------------------|
 | `short_press` | key released before `long_press_ms` (default 500)  |
 | `long_press`  | key held for `long_press_ms`, without waiting for release |
-| `while_press` | `press` action on down, `release` action on up (push-to-talk). Cannot be mixed with the other two |
+| `while_press` | `press` actions on down, `release` actions on up (push-to-talk). Cannot be mixed with the other two |
 
 A key with only `short_press` fires instantly on press. Config mistakes (duplicate key,
 mixed triggers, missing folder, typos...) are reported at startup.
@@ -139,8 +148,10 @@ src/
   main.rs          the daemon: load config, connect, event loop, reload on change
   bin/gui.rs       the editor's entry point (code in gui/)
   lib.rs           shared code used by both programs
-  config.rs        config format, load/save, validation
-  catalog.rs       what each module offers (actions, values), for checks and the editor
+  config/          config format: mod.rs (load/save, checks), button.rs (one key),
+                   migrate.rs (converts older formats)
+  catalog.rs       what each module offers (actions, values, presets), for checks and the editor
+  icons.rs         named icons, from the bundled Noto Emoji font
   paths.rs         per-user directories (config, state, cache)
   handler.rs       key down/up -> short/long/while press -> deck or module action
   builtin.rs       the built-in "deck" actions (pages, folders, brightness)
@@ -148,8 +159,9 @@ src/
   screen.rs        what each key should show right now (pure)
   render.rs        key content -> 72x72 image with text
   deck.rs          Stream Deck hardware (connect, redraw changed keys, read events)
-  gui/             the editor: mod.rs (window), sidebar.rs, grid.rs, inspector.rs,
-                   widgets.rs, edit.rs (page/folder/swap changes)
+  gui/             the editor: mod.rs (window), sidebar.rs, grid.rs, library.rs,
+                   inspector.rs, widgets.rs, edit.rs (page/folder/swap/preset changes),
+                   history.rs (undo/redo)
   modules/
     mod.rs         Module trait + registry
     spotify.rs     one file per application
@@ -158,7 +170,7 @@ src/
     tools/         built-in tools: timer, stopwatch, pomodoro, counter (+ shared countdown,
                    notifications)
 config.example.toml  example key bindings, copied on first run
-assets/fonts/      bundled font (DejaVu Sans Bold, license next to it)
+assets/fonts/      bundled fonts (DejaVu Sans Bold for text, Noto Emoji for icons; licenses next to them)
 udev/              permission rule for the device
 ```
 
@@ -167,8 +179,9 @@ udev/              permission rule for the device
 1. Create `src/modules/<app>.rs` with a struct implementing `Module` (copy `spotify.rs`).
    `run()` performs actions; `value()` returns live values and must be instant, so read
    the application's state in a background thread (see `spotify.rs`).
-2. Declare its actions and values in a `pub const INFO: ModuleInfo` in the same file:
-   the config check and the editor's dropdowns use it.
+2. Declare its actions, values and presets in a `pub const INFO: ModuleInfo` in the same
+   file: the config check, the editor's dropdowns and its library use it. A preset is a
+   `[[button]]` body in config format (see the existing modules); a test checks each one.
 3. In `src/modules/mod.rs`: add `mod <app>;`, register it in `Registry::start_all` and its
    `INFO` in `INFOS`.
 4. Add it to the module table above.

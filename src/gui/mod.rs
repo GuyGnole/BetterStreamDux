@@ -1,25 +1,32 @@
 //! The config editor (`betterstreamdux-gui`). One file per area of the window:
 //!   sidebar.rs    pages and folders (left)
 //!   grid.rs       the 15 keys, drawn like on the deck (middle)
-//!   inspector.rs  look and action of the selected key (right)
-//!   widgets.rs    small inputs shared by the panels (color, value and action pickers)
-//!   edit.rs       config changes touching several buttons (pages, folders, swaps)
+//!   library.rs    ready-made buttons to drag onto keys (middle, below the keys)
+//!   inspector.rs  look, live look and actions of the selected key (right)
+//!   widgets.rs    small inputs shared by the panels (icon, color, value and action pickers)
+//!   edit.rs       config changes touching several buttons (pages, folders, swaps, presets)
+//!   history.rs    undo / redo
 //!
 //! The editor only edits the config file: saving it makes the daemon reload it.
 
 mod edit;
 mod grid;
+mod history;
 mod inspector;
+mod library;
 mod sidebar;
 mod widgets;
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Result, anyhow};
 use eframe::egui;
 
 use crate::builtin::{BRIGHTNESS_MAX, BRIGHTNESS_MIN};
 use crate::config::Config;
+use crate::icons;
 use crate::pages::View;
 
 const OK_COLOR: egui::Color32 = egui::Color32::from_rgb(90, 200, 120);
@@ -35,8 +42,8 @@ pub fn run() -> Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title("BetterStreamDux")
             .with_app_id("betterstreamdux")
-            .with_inner_size([1180.0, 680.0])
-            .with_min_inner_size([980.0, 560.0]),
+            .with_inner_size([1240.0, 800.0])
+            .with_min_inner_size([1000.0, 640.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -51,6 +58,20 @@ pub fn run() -> Result<()> {
 }
 
 fn set_style(ctx: &egui::Context) {
+    // The icon font as a fallback, so icons show in the editor too.
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "icons".into(),
+        Arc::new(egui::FontData::from_static(icons::FONT)),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push("icons".into());
+    }
+    ctx.set_fonts(fonts);
     ctx.all_styles_mut(|style| {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
@@ -67,6 +88,8 @@ pub struct Editor {
     view: View,
     selected: Option<u8>,
     previews: grid::Previews,
+    library: library::Library,
+    history: history::History,
     /// Folder being renamed: (current name, text typed so far).
     renaming: Option<(String, String)>,
     /// Result of the last save or rename, shown in the status bar.
@@ -82,11 +105,13 @@ impl Editor {
         Self {
             path,
             saved: config.to_toml().unwrap_or_default(),
-            config,
             view: View::Page(1),
             selected: None,
             previews: grid::Previews::default(),
+            library: library::Library::default(),
+            history: history::History::new(&config),
             renaming: None,
+            config,
             message: String::new(),
             confirm_close: false,
             closing: false,
@@ -145,6 +170,14 @@ impl Editor {
                 if save.on_hover_text("Ctrl+S").clicked() {
                     self.save();
                 }
+                let redo = ui.add_enabled(self.history.can_redo(), egui::Button::new("Redo"));
+                if redo.on_hover_text("Ctrl+Shift+Z").clicked() {
+                    self.redo();
+                }
+                let undo = ui.add_enabled(self.history.can_undo(), egui::Button::new("Undo"));
+                if undo.on_hover_text("Ctrl+Z").clicked() {
+                    self.undo();
+                }
                 if dirty {
                     ui.colored_label(ui.visuals().warn_fg_color, "Unsaved changes");
                 }
@@ -168,11 +201,38 @@ impl Editor {
         });
     }
 
-    /// Ctrl+S saves; Delete clears the selected key (unless typing in a text field).
+    fn undo(&mut self) {
+        if let Some(config) = self.history.undo() {
+            self.config = config;
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(config) = self.history.redo() {
+            self.config = config;
+        }
+    }
+
+    /// Ctrl+S saves, Ctrl+Z undoes, Ctrl+Shift+Z redoes; Delete clears the selected key
+    /// (unless typing in a text field).
     fn keyboard(&mut self, ctx: &egui::Context, can_save: bool) {
-        let save = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S);
+        let shortcut = |modifiers, key| egui::KeyboardShortcut::new(modifiers, key);
+        let save = shortcut(egui::Modifiers::COMMAND, egui::Key::S);
+        // Checked before undo: Ctrl+Shift+Z also matches Ctrl+Z.
+        let redo = shortcut(
+            egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+            egui::Key::Z,
+        );
+        let undo = shortcut(egui::Modifiers::COMMAND, egui::Key::Z);
         if ctx.input_mut(|i| i.consume_shortcut(&save)) && can_save {
             self.save();
+        }
+        if !ctx.egui_wants_keyboard_input() {
+            if ctx.input_mut(|i| i.consume_shortcut(&redo)) {
+                self.redo();
+            } else if ctx.input_mut(|i| i.consume_shortcut(&undo)) {
+                self.undo();
+            }
         }
         if !ctx.egui_wants_keyboard_input()
             && ctx.input(|i| i.key_pressed(egui::Key::Delete))
@@ -245,10 +305,17 @@ impl eframe::App for Editor {
             .resizable(false)
             .exact_size(380.0)
             .show(ui, |ui| inspector::show(self, ui));
-        egui::CentralPanel::default().show(ui, |ui| grid::show(self, ui));
+        egui::CentralPanel::default().show(ui, |ui| {
+            grid::show(self, ui);
+            ui.add_space(12.0);
+            ui.separator();
+            library::show(self, ui);
+        });
+        library::draw_dragged(&ctx);
 
         if self.confirm_close {
             self.close_dialog(&ctx, can_save);
         }
+        self.history.record(&self.config, Instant::now());
     }
 }

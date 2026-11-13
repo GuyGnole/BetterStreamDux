@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 
-use crate::catalog::{Actions, ModuleInfo, action, text};
+use crate::catalog::{Actions, ModuleInfo, action, preset, text};
 use crate::modules::Module;
 use crate::paths;
 
@@ -21,6 +21,32 @@ pub const INFO: ModuleInfo = ModuleInfo {
         action("reset", "Back to 0"),
     ]),
     values: &[text("count", "The count", "3")],
+    presets: &[
+        preset(
+            "Counter",
+            r##"
+display = "counter:count"
+long_press = "counter:reset"
+color = "#222222"
+"##,
+        ),
+        preset(
+            "Counter +",
+            r##"
+symbol = "plus"
+short_press = "counter:increment"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Counter -",
+            r##"
+symbol = "minus"
+short_press = "counter:decrement"
+color = "#333333"
+"##,
+        ),
+    ],
 };
 
 pub struct Counter {

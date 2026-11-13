@@ -6,48 +6,71 @@
 #    0  1  2  3  4
 #    5  6  7  8  9
 #   10 11 12 13 14
+#
+# Actions are written "module:action"; a trigger takes one action or a list.
 
 brightness = 60
 long_press_ms = 500
 
-# ---------- Page 1: Spotify ----------
+# ---------- All pages: navigation bar (bottom row) ----------
+
+[[button]]
+shared = true
+key = 10
+symbol = "arrow_left"
+short_press = "deck:previous_page"
+color = "#333333"
+
+# Hold to go back to page 1.
+[[button]]
+shared = true
+key = 12
+display = "deck:page_number"
+long_press = "deck:go_to_page 1"
+color = "#333333"
+
+[[button]]
+shared = true
+key = 14
+symbol = "arrow_right"
+short_press = "deck:next_page"
+color = "#333333"
+
+# ---------- Page 1: music and voice ----------
 
 [[button]]
 key = 0
-module = "spotify"
-short_press = "previous"
-long_press = "seek_back"
-label = "Prev"
+symbol = "previous"
+short_press = "spotify:previous"
+long_press = "spotify:seek_back"
 color = "#1DB954"
 
-# Green while playing, grey otherwise. Hold to stop.
+# Play icon, or pause on green while playing. Hold to stop.
 [[button]]
 key = 1
-module = "spotify"
-short_press = "play_pause"
-long_press = "stop"
-label = "Play"
+symbol = "play"
+short_press = "spotify:play_pause"
+long_press = "spotify:stop"
 color = "#535353"
-color_by = { value = "spotify:status", colors = { playing = "#1DB954" } }
+look_by = { value = "spotify:status", states = { playing = { symbol = "pause", color = "#1DB954" } } }
 
 [[button]]
 key = 2
-module = "spotify"
-short_press = "next"
-long_press = "seek_forward"
-label = "Next"
+symbol = "next"
+short_press = "spotify:next"
+long_press = "spotify:seek_forward"
 color = "#1DB954"
 
-# Album cover; plain dark key when Spotify is closed.
+# Album cover. Press: play/pause AND open the Music folder (actions from two modules).
 [[button]]
 key = 3
-module = "spotify"
-short_press = "play_pause"
 icon_value = "spotify:cover"
+short_press = ["spotify:play_pause", "deck:open_folder Music"]
 color = "#191414"
 
 [[button]]
 key = 4
+symbol = "music"
 display = "spotify:title"
 label = "Spotify"
 color = "#191414"
@@ -55,226 +78,185 @@ color = "#191414"
 # Push-to-talk: unmuted only while held. Green while the mic is live.
 [[button]]
 key = 5
-module = "discord"
-while_press = { press = "unmute", release = "mute" }
+symbol = "studio_mic"
 label = "PTT"
+while_press = { press = "discord:unmute", release = "discord:mute" }
 color = "#5865F2"
-color_by = { value = "discord:muted", colors = { false = "#3BA55D" } }
+look_by = { value = "discord:muted", states = { false = { color = "#3BA55D" } } }
 
 [[button]]
 key = 6
-module = "spotify"
-short_press = "volume_down"
-label = "Vol -"
-color = "#333333"
+symbol = "mic"
+short_press = "discord:toggle_mute"
+color = "#5865F2"
+look_by = { value = "discord:muted", states = { true = { symbol = "mute", color = "#ED4245" } } }
 
 [[button]]
 key = 7
+symbol = "headphones"
+short_press = "discord:toggle_deafen"
+color = "#5865F2"
+look_by = { value = "discord:deafened", states = { true = { symbol = "mute", color = "#ED4245" } } }
+
+[[button]]
+key = 8
+symbol = "people"
+display = "discord:channel"
+label = "No voice"
+long_press = "discord:leave_channel"
+color = "#2B2D31"
+
+[[button]]
+key = 9
+symbol = "gear"
+label = "Settings"
+short_press = "deck:open_folder Settings"
+color = "#444444"
+
+# ---------- Page 2: tools ----------
+
+# Pomodoro: press to start/pause, hold to reset. Red while working, green on breaks.
+[[button]]
+page = 2
+key = 0
+symbol = "tomato"
+label = "Pomodoro"
+display = "pomodoro:remaining"
+short_press = "pomodoro:start_pause"
+long_press = "pomodoro:reset"
+color = "#444444"
+look_by = { value = "pomodoro:phase", states = { work = { color = "#C0392B" }, break = { color = "#27AE60", symbol = "coffee" }, long_break = { color = "#2980B9", symbol = "coffee" } } }
+
+[[button]]
+page = 2
+key = 1
+symbol = "next"
+label = "Skip"
+short_press = "pomodoro:skip"
+color = "#333333"
+
+# 5 minute timer: press to start, hold to cancel. Red with an alarm icon when done.
+[[button]]
+page = 2
+key = 3
+symbol = "timer"
+label = "5 min"
+display = "timer:remaining"
+short_press = "timer:start 5"
+long_press = "timer:cancel"
+color = "#444444"
+look_by = { value = "timer:status", states = { running = { color = "#2980B9" }, paused = { color = "#7F8C8D" }, done = { color = "#C0392B", symbol = "alarm" } } }
+
+[[button]]
+page = 2
+key = 4
+symbol = "pause"
+label = "Timer"
+short_press = "timer:pause_resume"
+long_press = "timer:add_minute"
+color = "#333333"
+
+[[button]]
+page = 2
+key = 5
+symbol = "stopwatch"
+label = "Stopwatch"
+display = "stopwatch:elapsed"
+short_press = "stopwatch:start_stop"
+long_press = "stopwatch:reset"
+color = "#444444"
+look_by = { value = "stopwatch:status", states = { running = { color = "#27AE60" } } }
+
+[[button]]
+page = 2
+key = 7
+symbol = "minus"
+short_press = "counter:decrement"
+color = "#333333"
+
+[[button]]
+page = 2
+key = 8
+display = "counter:count"
+long_press = "counter:reset"
+color = "#222222"
+
+[[button]]
+page = 2
+key = 9
+symbol = "plus"
+short_press = "counter:increment"
+color = "#333333"
+
+[[button]]
+page = 2
+key = 2
+symbol = "clock"
+display = "deck:clock"
+color = "#222222"
+
+# ---------- Folder: Music (opened by the album cover) ----------
+
+[[button]]
+folder = "Music"
+key = 0
+symbol = "back"
+short_press = "deck:back"
+color = "#333333"
+
+[[button]]
+folder = "Music"
+key = 6
+symbol = "volume_down"
+short_press = "spotify:volume_down"
+color = "#333333"
+
+[[button]]
+folder = "Music"
+key = 7
+symbol = "volume_up"
 display = "spotify:volume"
 color = "#191414"
 
 [[button]]
+folder = "Music"
 key = 8
-module = "spotify"
-short_press = "volume_up"
-label = "Vol +"
+symbol = "volume_up"
+short_press = "spotify:volume_up"
+color = "#333333"
+
+# ---------- Folder: Settings ----------
+
+[[button]]
+folder = "Settings"
+key = 0
+symbol = "back"
+short_press = "deck:back"
 color = "#333333"
 
 [[button]]
-key = 9
-module = "deck"
-short_press = "open_folder settings"
-label = "Settings"
-color = "#444444"
-
-# ---------- Page 2: Discord + misc ----------
-
-[[button]]
-page = 2
-key = 0
-module = "shell"
-short_press = "notify-send 'BetterStreamDux' 'short press'"
-long_press = "notify-send 'BetterStreamDux' 'long press'"
-label = "Notify"
-color = "#444444"
-
-[[button]]
-page = 2
-key = 4
-display = "deck:clock"
-color = "#222222"
-
-# Red while muted / deafened.
-[[button]]
-page = 2
-key = 5
-module = "discord"
-short_press = "toggle_mute"
-label = "Mute"
-color = "#5865F2"
-color_by = { value = "discord:muted", colors = { true = "#ED4245" } }
-
-[[button]]
-page = 2
+folder = "Settings"
 key = 6
-module = "discord"
-short_press = "toggle_deafen"
-label = "Deafen"
-color = "#5865F2"
-color_by = { value = "discord:deafened", colors = { true = "#ED4245" } }
+symbol = "brightness_down"
+short_press = "deck:brightness_down"
+color = "#444444"
 
-# Current voice channel; press to leave it.
 [[button]]
-page = 2
+folder = "Settings"
 key = 7
-module = "discord"
-short_press = "leave_channel"
-display = "discord:channel"
-label = "No voice"
-color = "#2B2D31"
-
-# Shows "connected", "authorizing" or "disconnected": handy during setup.
-[[button]]
-page = 2
-key = 9
-display = "discord:status"
-color = "#2B2D31"
-
-# ---------- Page 3: tools ----------
-
-# Pomodoro: press to start/pause, hold to reset. Red while working, green on breaks.
-[[button]]
-page = 3
-key = 0
-module = "pomodoro"
-short_press = "start_pause"
-long_press = "reset"
-display = "pomodoro:remaining"
-label = "Pomodoro"
-color = "#444444"
-color_by = { value = "pomodoro:phase", colors = { work = "#C0392B", break = "#27AE60", long_break = "#2980B9" } }
-
-[[button]]
-page = 3
-key = 1
-module = "pomodoro"
-short_press = "skip"
-label = "Skip"
-color = "#333333"
-
-# 5 minute timer: press to start, hold to cancel. Red when done.
-[[button]]
-page = 3
-key = 3
-module = "timer"
-short_press = "start 5"
-long_press = "cancel"
-display = "timer:remaining"
-label = "5 min"
-color = "#444444"
-color_by = { value = "timer:status", colors = { running = "#2980B9", paused = "#7F8C8D", done = "#C0392B" } }
-
-[[button]]
-page = 3
-key = 4
-module = "timer"
-short_press = "pause_resume"
-long_press = "add_minute"
-label = "Pause"
-color = "#333333"
-
-# Stopwatch: press to start/stop, hold to reset.
-[[button]]
-page = 3
-key = 5
-module = "stopwatch"
-short_press = "start_stop"
-long_press = "reset"
-display = "stopwatch:elapsed"
-label = "Stopwatch"
-color = "#444444"
-color_by = { value = "stopwatch:status", colors = { running = "#27AE60" } }
-
-# Counter: - / count (hold to reset) / +
-[[button]]
-page = 3
-key = 7
-module = "counter"
-short_press = "decrement"
-label = "-"
-color = "#333333"
-
-[[button]]
-page = 3
-key = 8
-module = "counter"
-long_press = "reset"
-display = "counter:count"
-color = "#222222"
-
-[[button]]
-page = 3
-key = 9
-module = "counter"
-short_press = "increment"
-label = "+"
-color = "#333333"
-
-# ---------- All pages: navigation bar (bottom row) ----------
-# `shared = true` keys appear on every page, unless a page has its own key there.
-
-[[button]]
-shared = true
-key = 10
-module = "deck"
-short_press = "previous_page"
-label = "<"
-color = "#333333"
-
-# Hold to go back to page 1.
-[[button]]
-shared = true
-key = 12
-module = "deck"
-display = "deck:page_number"
-long_press = "go_to_page 1"
-color = "#333333"
-
-[[button]]
-shared = true
-key = 14
-module = "deck"
-short_press = "next_page"
-label = ">"
-color = "#333333"
-
-# ---------- Folder: settings ----------
-
-[[button]]
-folder = "settings"
-key = 0
-module = "deck"
-short_press = "back"
-label = "Back"
-color = "#333333"
-
-[[button]]
-folder = "settings"
-key = 6
-module = "deck"
-short_press = "brightness_down"
-label = "-"
-color = "#444444"
-
-[[button]]
-folder = "settings"
-key = 7
+symbol = "sun"
 display = "deck:brightness"
 
 [[button]]
-folder = "settings"
+folder = "Settings"
 key = 8
-module = "deck"
-short_press = "brightness_up"
-label = "+"
+symbol = "brightness_up"
+short_press = "deck:brightness_up"
 color = "#444444"
+
+[[button]]
+folder = "Settings"
+key = 12
+symbol = "chat"
+display = "discord:status"
+color = "#2B2D31"

@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 
 use super::elapsed_text;
-use crate::catalog::{Actions, ModuleInfo, action, state, text};
+use crate::catalog::{Actions, ModuleInfo, action, preset, state, text};
 use crate::modules::Module;
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -22,6 +22,18 @@ pub const INFO: ModuleInfo = ModuleInfo {
         text("elapsed", "Time elapsed, like 01:23", "01:23"),
         state("status", "Stopwatch state", &["running", "paused", "idle"]),
     ],
+    presets: &[preset(
+        "Stopwatch",
+        r##"
+symbol = "stopwatch"
+label = "Stopwatch"
+display = "stopwatch:elapsed"
+short_press = "stopwatch:start_stop"
+long_press = "stopwatch:reset"
+color = "#444444"
+look_by = { value = "stopwatch:status", states = { running = { color = "#27AE60" } } }
+"##,
+    )],
 };
 
 #[derive(Default)]

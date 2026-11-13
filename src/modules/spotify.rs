@@ -21,7 +21,7 @@ use zbus::proxy::CacheProperties;
 use zbus::zvariant::OwnedValue;
 
 use super::Module;
-use crate::catalog::{Actions, ModuleInfo, action, image, state, text};
+use crate::catalog::{Actions, ModuleInfo, action, image, preset, state, text};
 use crate::paths;
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -50,6 +50,78 @@ pub const INFO: ModuleInfo = ModuleInfo {
         text("album", "Album", "Album"),
         text("volume", "Spotify volume, like 60%", "60%"),
         image("cover", "Album cover image"),
+    ],
+    presets: &[
+        preset(
+            "Play / Pause",
+            r##"
+symbol = "play"
+short_press = "spotify:play_pause"
+long_press = "spotify:stop"
+color = "#535353"
+look_by = { value = "spotify:status", states = { playing = { symbol = "pause", color = "#1DB954" } } }
+"##,
+        ),
+        preset(
+            "Next track",
+            r##"
+symbol = "next"
+short_press = "spotify:next"
+long_press = "spotify:seek_forward"
+color = "#1DB954"
+"##,
+        ),
+        preset(
+            "Previous track",
+            r##"
+symbol = "previous"
+short_press = "spotify:previous"
+long_press = "spotify:seek_back"
+color = "#1DB954"
+"##,
+        ),
+        preset(
+            "Album cover",
+            r##"
+icon_value = "spotify:cover"
+short_press = "spotify:play_pause"
+color = "#191414"
+"##,
+        ),
+        preset(
+            "Now playing",
+            r##"
+symbol = "music"
+display = "spotify:title"
+label = "Spotify"
+color = "#191414"
+"##,
+        ),
+        preset(
+            "Volume +",
+            r##"
+symbol = "volume_up"
+short_press = "spotify:volume_up"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Volume -",
+            r##"
+symbol = "volume_down"
+short_press = "spotify:volume_down"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Open Spotify",
+            r##"
+symbol = "music"
+label = "Spotify"
+short_press = "shell:spotify"
+color = "#1DB954"
+"##,
+        ),
     ],
 };
 

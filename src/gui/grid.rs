@@ -1,5 +1,6 @@
 //! Middle panel: the 15 keys, drawn with the deck's own rendering code.
-//! Click a key to edit it; drag a key onto another one to swap them.
+//! Click a key to edit it; drag a key onto another one to swap them; drop a library
+//! preset on a key to place it.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -7,14 +8,15 @@ use std::time::Duration;
 use eframe::egui;
 use image::DynamicImage;
 
+use super::library::PresetPayload;
 use super::{Editor, edit};
-use crate::config::ValueRef;
+use crate::config::{Config, ValueRef};
 use crate::pages::View;
 use crate::render::{self, KEY_SIZE};
-use crate::screen::{self, KeyFace, Screen};
+use crate::screen::{self, KeyFace};
 use crate::{builtin, catalog};
 
-const KEY_PX: f32 = 100.0;
+const KEY_PX: f32 = 92.0;
 const GAP: f32 = 14.0;
 /// Old previews are dropped past this many, to bound memory.
 const MAX_CACHED: usize = 300;
@@ -26,7 +28,7 @@ pub struct Previews {
 }
 
 impl Previews {
-    fn texture(&mut self, ctx: &egui::Context, face: &KeyFace) -> egui::TextureHandle {
+    pub fn texture(&mut self, ctx: &egui::Context, face: &KeyFace) -> egui::TextureHandle {
         if self.textures.len() > MAX_CACHED {
             self.textures.clear();
         }
@@ -51,11 +53,13 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     } else {
         ui.weak("Click a key to edit it. Drag a key onto another one to swap them.");
     }
-    ui.add_space(24.0);
+    ui.add_space(16.0);
 
-    let screen = preview(ed);
+    let values = |value: &ValueRef| preview_value(&ed.config, &ed.view, value);
+    let screen = screen::build(&ed.config, &ed.view, ed.config.brightness, &values);
     let mut clicked = None;
     let mut swap = None;
+    let mut dropped = None;
     let width = 5.0 * KEY_PX + 4.0 * GAP;
     ui.horizontal(|ui| {
         ui.add_space(((ui.available_width() - width) / 2.0).max(0.0)); // center the grid
@@ -74,6 +78,9 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
                 if let Some(from) = response.dnd_release_payload::<u8>() {
                     swap = Some((*from, key));
                 }
+                if let Some(payload) = response.dnd_release_payload::<PresetPayload>() {
+                    dropped = Some((key, payload.preset));
+                }
                 if key % 5 == 4 {
                     ui.end_row();
                 }
@@ -89,6 +96,12 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     {
         edit::swap_keys(&mut ed.config, &ed.view, from, to);
         ed.selected = Some(to);
+    }
+    if let Some((key, preset)) = dropped {
+        match edit::place_preset(&mut ed.config, &ed.view, key, preset) {
+            Ok(()) => ed.selected = Some(key),
+            Err(err) => ed.message = format!("{err:#}"),
+        }
     }
     // Keeps the clock key current.
     ui.ctx().request_repaint_after(Duration::from_secs(10));
@@ -110,7 +123,10 @@ fn key_cell(
 
     let stroke = if selected {
         Some(egui::Stroke::new(3.0, ui.visuals().selection.bg_fill))
-    } else if response.dnd_hover_payload::<u8>().is_some() || response.hovered() {
+    } else if response.dnd_hover_payload::<u8>().is_some()
+        || response.dnd_hover_payload::<PresetPayload>().is_some()
+        || response.hovered()
+    {
         Some(egui::Stroke::new(1.5, ui.visuals().weak_text_color()))
     } else {
         None
@@ -147,23 +163,20 @@ fn badge(ui: &egui::Ui, key: egui::Rect, text: &str) {
     );
 }
 
-/// The keys of the current view, with sample text for module values
+/// A live value for the preview: the deck's own values, and sample text for modules
 /// (the editor does not connect to Spotify or Discord).
-fn preview(ed: &Editor) -> Screen {
-    let page_label = match &ed.view {
-        View::Page(page) => format!("{page}/{}", ed.config.page_count()),
-        View::Folder(name) => name.clone(),
-        View::Shared => format!("1/{}", ed.config.page_count()),
-    };
-    let clock = chrono::Local::now().format("%H:%M").to_string();
-    let values = |value: &ValueRef| -> Option<String> {
-        if value.module == builtin::MODULE_NAME {
-            return builtin::value(&value.name, &clock, &page_label, ed.config.brightness);
-        }
-        let sample = catalog::find(&value.module)?.value(&value.name)?.sample;
-        (!sample.is_empty()).then(|| sample.to_string())
-    };
-    screen::build(&ed.config, &ed.view, ed.config.brightness, &values)
+pub fn preview_value(config: &Config, view: &View, value: &ValueRef) -> Option<String> {
+    if value.module == builtin::MODULE_NAME {
+        let page_label = match view {
+            View::Page(page) => format!("{page}/{}", config.page_count()),
+            View::Folder(name) => name.clone(),
+            View::Shared => format!("1/{}", config.page_count()),
+        };
+        let clock = chrono::Local::now().format("%H:%M").to_string();
+        return builtin::value(&value.name, &clock, &page_label, config.brightness);
+    }
+    let sample = catalog::find(&value.module)?.value(&value.name)?.sample;
+    (!sample.is_empty()).then(|| sample.to_string())
 }
 
 fn to_color_image(face: &KeyFace) -> egui::ColorImage {

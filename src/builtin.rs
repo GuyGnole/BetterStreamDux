@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result, bail};
 
-use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, text};
+use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, preset, text};
 
 pub const MODULE_NAME: &str = "deck";
 
@@ -27,6 +27,80 @@ pub const INFO: ModuleInfo = ModuleInfo {
             "1/2",
         ),
         text("brightness", "Brightness, like 60%", "60%"),
+    ],
+    presets: &[
+        preset(
+            "Next page",
+            r##"
+symbol = "arrow_right"
+short_press = "deck:next_page"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Previous page",
+            r##"
+symbol = "arrow_left"
+short_press = "deck:previous_page"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Page number",
+            r##"
+display = "deck:page_number"
+long_press = "deck:go_to_page 1"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Open folder",
+            r##"
+symbol = "folder"
+label = "Folder"
+short_press = "deck:open_folder {new_folder}"
+color = "#444444"
+"##,
+        ),
+        preset(
+            "Back",
+            r##"
+symbol = "back"
+short_press = "deck:back"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Brightness +",
+            r##"
+symbol = "brightness_up"
+short_press = "deck:brightness_up"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Brightness -",
+            r##"
+symbol = "brightness_down"
+short_press = "deck:brightness_down"
+color = "#333333"
+"##,
+        ),
+        preset(
+            "Brightness",
+            r##"
+display = "deck:brightness"
+symbol = "sun"
+color = "#222222"
+"##,
+        ),
+        preset(
+            "Clock",
+            r##"
+display = "deck:clock"
+color = "#222222"
+"##,
+        ),
     ],
 };
 

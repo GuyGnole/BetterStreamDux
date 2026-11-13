@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 
 use super::{Countdown, MINUTE, countdown_text, notify};
-use crate::catalog::{Actions, ModuleInfo, action, state, text};
+use crate::catalog::{Actions, ModuleInfo, action, preset, state, text};
 use crate::config::{Config, PomodoroSettings};
 use crate::modules::Module;
 
@@ -32,6 +32,29 @@ pub const INFO: ModuleInfo = ModuleInfo {
         ),
         state("status", "Pomodoro state", &["running", "paused", "idle"]),
         text("done", "Work rounds finished since reset", "2"),
+    ],
+    presets: &[
+        preset(
+            "Pomodoro",
+            r##"
+symbol = "tomato"
+label = "Pomodoro"
+display = "pomodoro:remaining"
+short_press = "pomodoro:start_pause"
+long_press = "pomodoro:reset"
+color = "#444444"
+look_by = { value = "pomodoro:phase", states = { work = { color = "#C0392B" }, break = { color = "#27AE60", symbol = "coffee" }, long_break = { color = "#2980B9", symbol = "coffee" } } }
+"##,
+        ),
+        preset(
+            "Pomodoro skip",
+            r##"
+symbol = "next"
+label = "Skip"
+short_press = "pomodoro:skip"
+color = "#333333"
+"##,
+        ),
     ],
 };
 

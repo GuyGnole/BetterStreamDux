@@ -2,16 +2,23 @@
 //!
 //! Default location: `~/.config/betterstreamdux/config.toml`, created from
 //! `config.example.toml` on first run. Edited by hand or with the GUI.
+//!   button.rs   one key (`Button`) and its parts
+//!   migrate.rs  converts older config formats when loading
 
-use std::collections::{BTreeMap, HashSet};
+mod button;
+mod migrate;
+
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 
+pub use self::button::{Button, ColorBy, Look, LookBy, ValueRef, WhilePress, split_module};
 use crate::builtin::{self, DeckAction};
 use crate::catalog::{self, ValueKind};
+use crate::icons;
 use crate::pages::View;
 use crate::paths;
 
@@ -20,7 +27,7 @@ pub const KEY_COUNT: u8 = 15;
 pub const MAX_PAGES: u8 = 5;
 
 /// Written to the default location on first run.
-const EXAMPLE: &str = include_str!("../config.example.toml");
+const EXAMPLE: &str = include_str!("../../config.example.toml");
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,182 +73,12 @@ impl Default for PomodoroSettings {
     }
 }
 
-/// One key binding on one page or folder.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Button {
-    /// Key index, 0-14.
-    pub key: u8,
-    /// Main page 1-5. Defaults to 1 when `folder` is not set.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub page: Option<u8>,
-    /// Folder name, instead of `page`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub folder: Option<String>,
-    /// Shown on every main page, instead of `page`/`folder`.
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub shared: bool,
-
-    /// Module name, e.g. "spotify", or "deck" for built-in actions. Needed if a trigger is set.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub module: Option<String>,
-    /// Action when the key is released before `long_press_ms`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub short_press: Option<String>,
-    /// Action when the key has been held for `long_press_ms`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub long_press: Option<String>,
-    /// Actions when the key goes down and when it comes back up (push-to-talk).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub while_press: Option<WhilePress>,
-
-    /// Fixed text drawn on the key. Also shown when `display` has no value.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    /// Live text drawn on the key, e.g. "deck:clock" or "spotify:title".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display: Option<ValueRef>,
-    /// Background color as "#RRGGBB".
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
-    /// Background color picked from a live value. Falls back to `color`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color_by: Option<ColorBy>,
-    /// Path to a png/jpg image. Takes priority over colors.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<String>,
-    /// Image path from a live value, e.g. "spotify:cover". Falls back to `icon`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_value: Option<ValueRef>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WhilePress {
-    pub press: String,
-    pub release: String,
-}
-
-/// A live value published by a module, written "module:name" in the config.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct ValueRef {
-    pub module: String,
-    pub name: String,
-}
-
-impl TryFrom<String> for ValueRef {
-    type Error = String;
-
-    fn try_from(text: String) -> Result<Self, String> {
-        match text.split_once(':') {
-            Some((module, name)) if !module.is_empty() && !name.is_empty() => Ok(Self {
-                module: module.to_string(),
-                name: name.to_string(),
-            }),
-            _ => Err(format!(
-                "'{text}' should look like module:value, e.g. spotify:title"
-            )),
-        }
-    }
-}
-
-impl From<ValueRef> for String {
-    fn from(value: ValueRef) -> Self {
-        value.to_string()
-    }
-}
-
-impl std::fmt::Display for ValueRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}:{}", self.module, self.name)
-    }
-}
-
-/// Picks the key color from a live value, e.g. green while `spotify:status` is "playing".
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ColorBy {
-    pub value: ValueRef,
-    /// Value -> "#RRGGBB". Values not listed use the button's `color`.
-    pub colors: BTreeMap<String, String>,
-}
-
-// serde's skip_serializing_if passes a reference.
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn is_false(value: &bool) -> bool {
-    !*value
-}
-
 fn default_brightness() -> u8 {
     60
 }
 
 fn default_long_press_ms() -> u64 {
     500
-}
-
-impl Button {
-    /// An empty button at `key` in `view`.
-    pub fn new(view: &View, key: u8) -> Self {
-        let (page, folder, shared) = match view {
-            View::Page(page) => (Some(*page), None, false),
-            View::Folder(name) => (None, Some(name.clone()), false),
-            View::Shared => (None, None, true),
-        };
-        Self {
-            key,
-            page,
-            folder,
-            shared,
-            ..Self::default()
-        }
-    }
-
-    /// The page, folder or shared layer this button belongs to.
-    pub fn view(&self) -> View {
-        match &self.folder {
-            _ if self.shared => View::Shared,
-            Some(name) => View::Folder(name.clone()),
-            None => View::Page(self.page.unwrap_or(1)),
-        }
-    }
-
-    /// True if the button sets nothing besides its position.
-    pub fn is_empty(&self) -> bool {
-        *self == Self::new(&self.view(), self.key)
-    }
-
-    /// Every action string this button can run.
-    pub fn actions(&self) -> Vec<&str> {
-        let mut actions = Vec::new();
-        actions.extend(self.short_press.as_deref());
-        actions.extend(self.long_press.as_deref());
-        if let Some(w) = &self.while_press {
-            actions.extend([w.press.as_str(), w.release.as_str()]);
-        }
-        actions
-    }
-
-    /// Every live value this button reads, with the kind it needs.
-    fn value_refs(&self) -> Vec<(&ValueRef, ValueKind)> {
-        let mut refs = Vec::new();
-        refs.extend(self.display.iter().map(|v| (v, ValueKind::Text)));
-        refs.extend(self.icon_value.iter().map(|v| (v, ValueKind::Image)));
-        refs.extend(self.color_by.iter().map(|c| (&c.value, ValueKind::Text)));
-        refs
-    }
-
-    fn deck_actions(&self) -> Vec<DeckAction> {
-        if self.module.as_deref() != Some(builtin::MODULE_NAME) {
-            return Vec::new();
-        }
-        // Parse errors are reported by `validate_button`.
-        self.actions()
-            .into_iter()
-            .filter_map(|a| DeckAction::parse(a).ok())
-            .collect()
-    }
 }
 
 impl Config {
@@ -269,8 +106,10 @@ impl Config {
         Self::parse(&text).with_context(|| format!("invalid config in {}", path.display()))
     }
 
+    /// Reads a config (converting older formats) and checks it.
     pub fn parse(text: &str) -> Result<Self> {
-        let config: Self = toml::from_str(text)?;
+        let mut config: Self = toml::from_str(text)?;
+        migrate::migrate(&mut config);
         config.check()?;
         Ok(config)
     }
@@ -284,17 +123,14 @@ impl Config {
         Ok(())
     }
 
-    /// The config as TOML text, buttons sorted by page/folder then key.
+    /// The config as TOML text: shared keys first, then pages, then folders, by key.
     pub fn to_toml(&self) -> Result<String> {
         let mut sorted = self.clone();
-        // Shared keys first, then pages, then folders.
         sorted.buttons.sort_by_key(|b| {
-            let group = if b.shared {
-                0
-            } else if b.folder.is_some() {
-                2
-            } else {
-                1
+            let group = match b.view() {
+                View::Shared => 0,
+                View::Page(_) => 1,
+                View::Folder(_) => 2,
             };
             (group, b.folder.clone(), b.page.unwrap_or(1), b.key)
         });
@@ -356,6 +192,35 @@ impl Config {
                 "pages must be between 1 and {MAX_PAGES}"
             );
         }
+        self.check_pomodoro()?;
+
+        let mut seen = HashSet::new();
+        for button in &self.buttons {
+            let place = match button.view() {
+                View::Shared => format!("shared key {}", button.key),
+                View::Folder(name) => format!("folder '{name}' key {}", button.key),
+                View::Page(page) => format!("page {page} key {}", button.key),
+            };
+            ensure!(
+                seen.insert((button.view(), button.key)),
+                "{place} is bound twice"
+            );
+            self.check_button(button).with_context(|| place)?;
+        }
+        for folder in self.folders() {
+            let has_back = self.buttons.iter().any(|b| {
+                b.folder.as_deref() == Some(folder.as_str())
+                    && b.deck_actions().contains(&DeckAction::Back)
+            });
+            ensure!(
+                has_back,
+                "folder '{folder}' has no key with the action 'deck:back'"
+            );
+        }
+        Ok(())
+    }
+
+    fn check_pomodoro(&self) -> Result<()> {
         let p = &self.pomodoro;
         for (name, minutes) in [
             ("work_minutes", p.work_minutes),
@@ -371,34 +236,10 @@ impl Config {
             (1..=20).contains(&p.rounds),
             "pomodoro rounds must be between 1 and 20"
         );
-
-        let mut seen = HashSet::new();
-        for button in &self.buttons {
-            let place = match button.view() {
-                View::Shared => format!("shared key {}", button.key),
-                View::Folder(name) => format!("folder '{name}' key {}", button.key),
-                View::Page(page) => format!("page {page} key {}", button.key),
-            };
-            ensure!(
-                seen.insert((button.view(), button.key)),
-                "{place} is bound twice"
-            );
-            self.validate_button(button).with_context(|| place)?;
-        }
-        for folder in self.folders() {
-            let has_back = self.buttons.iter().any(|b| {
-                b.folder.as_deref() == Some(folder.as_str())
-                    && b.deck_actions().contains(&DeckAction::Back)
-            });
-            ensure!(
-                has_back,
-                "folder '{folder}' has no key with the deck action 'back'"
-            );
-        }
         Ok(())
     }
 
-    fn validate_button(&self, b: &Button) -> Result<()> {
+    fn check_button(&self, b: &Button) -> Result<()> {
         ensure!(
             b.key < KEY_COUNT,
             "key must be between 0 and {}",
@@ -415,62 +256,52 @@ impl Config {
                 "page must be between 1 and {MAX_PAGES}"
             );
         }
-        if let Some(color) = &b.color {
+        for color in b.colors() {
             parse_color(color)?;
         }
-        for color in b.color_by.iter().flat_map(|c| c.colors.values()) {
-            parse_color(color)?;
+        for symbol in b.symbols() {
+            ensure!(icons::glyph(symbol).is_some(), "unknown symbol '{symbol}'");
         }
         for (value, kind) in b.value_refs() {
-            let module = catalog::find(&value.module)
-                .with_context(|| format!("unknown module '{}' in '{value}'", value.module))?;
-            let info = module
-                .value(&value.name)
-                .with_context(|| format!("unknown value '{value}'"))?;
-            ensure!(
-                info.kind == kind,
-                "'{value}' is {} but is used as {}",
-                kind_name(info.kind),
-                kind_name(kind)
-            );
+            check_value(value, kind)?;
         }
 
-        let has_press = b.short_press.is_some() || b.long_press.is_some();
+        let has_press = !b.short_press.is_empty() || !b.long_press.is_empty();
         ensure!(
             b.while_press.is_none() || !has_press,
             "while_press cannot be combined with short_press/long_press"
         );
-        let has_trigger = has_press || b.while_press.is_some();
-        ensure!(
-            !has_trigger || b.module.is_some(),
-            "a trigger needs a module"
-        );
-
-        if let Some(module) = &b.module {
-            let info =
-                catalog::find(module).with_context(|| format!("unknown module '{module}'"))?;
-            for action in b.actions() {
-                info.check_action(action)?;
-            }
+        if let Some(held) = &b.while_press {
+            ensure!(
+                !held.press.is_empty() || !held.release.is_empty(),
+                "while_press needs a press or a release action"
+            );
         }
-        if b.module.as_deref() == Some(builtin::MODULE_NAME) {
-            for action in b.actions() {
-                self.validate_deck_action(b, &DeckAction::parse(action)?)?;
-            }
+        for action in b.actions() {
+            self.check_action(b, action)?;
         }
         Ok(())
     }
 
-    fn validate_deck_action(&self, b: &Button, action: &DeckAction) -> Result<()> {
-        match action {
+    fn check_action(&self, b: &Button, action: &str) -> Result<()> {
+        let (module, rest) = split_module(action).with_context(|| {
+            format!("'{action}' should look like module:action, e.g. spotify:next")
+        })?;
+        let info = catalog::find(module)
+            .with_context(|| format!("unknown module '{module}' in '{action}'"))?;
+        info.check_action(rest)?;
+        if module != builtin::MODULE_NAME {
+            return Ok(());
+        }
+        match DeckAction::parse(rest)? {
             DeckAction::GoToPage(page) => ensure!(
-                (1..=self.page_count()).contains(page),
+                (1..=self.page_count()).contains(&page),
                 "go_to_page {page}: there is no page {page}"
             ),
             DeckAction::OpenFolder(name) => {
                 ensure!(b.folder.is_none(), "folders cannot open other folders");
                 ensure!(
-                    self.folders().contains(name),
+                    self.folders().contains(&name),
                     "folder '{name}' does not exist"
                 );
             }
@@ -480,11 +311,23 @@ impl Config {
     }
 }
 
-fn kind_name(kind: ValueKind) -> &'static str {
-    match kind {
+fn check_value(value: &ValueRef, kind: ValueKind) -> Result<()> {
+    let module = catalog::find(&value.module)
+        .with_context(|| format!("unknown module '{}' in '{value}'", value.module))?;
+    let info = module
+        .value(&value.name)
+        .with_context(|| format!("unknown value '{value}'"))?;
+    let kind_name = |kind| match kind {
         ValueKind::Text => "text",
         ValueKind::Image => "an image",
-    }
+    };
+    ensure!(
+        info.kind == kind,
+        "'{value}' is {} but is used as {}",
+        kind_name(info.kind),
+        kind_name(kind)
+    );
+    Ok(())
 }
 
 /// Turns "#RRGGBB" into `[r, g, b]`.
@@ -507,7 +350,7 @@ mod tests {
     use super::*;
 
     /// A valid button, to append fields to.
-    const OK: &str = "[[button]]\nkey = 0\nmodule = \"shell\"\nshort_press = \"a\"\n";
+    const OK: &str = "[[button]]\nkey = 0\nshort_press = \"shell:a\"\n";
 
     #[test]
     fn parses_buttons() {
@@ -516,14 +359,13 @@ mod tests {
             brightness = 30
             [[button]]
             key = 1
-            module = "spotify"
-            short_press = "play_pause"
-            long_press = "next"
+            short_press = ["spotify:play_pause", "deck:next_page"]
+            long_press = "spotify:next"
+            symbol = "play"
             [[button]]
             page = 2
             key = 1
-            module = "discord"
-            while_press = { press = "unmute", release = "mute" }
+            while_press = { press = "discord:unmute", release = "discord:mute" }
             "#,
         )
         .unwrap();
@@ -531,9 +373,12 @@ mod tests {
         assert_eq!(config.long_press_ms, 500);
         assert_eq!(config.page_count(), 2);
         let page1 = config.button(&View::Page(1), 1).unwrap();
-        assert_eq!(page1.long_press.as_deref(), Some("next"));
+        assert_eq!(page1.short_press, ["spotify:play_pause", "deck:next_page"]);
         let page2 = config.button(&View::Page(2), 1).unwrap();
-        assert_eq!(page2.while_press.as_ref().unwrap().release, "mute");
+        assert_eq!(
+            page2.while_press.as_ref().unwrap().release,
+            ["discord:mute"]
+        );
         assert!(config.button(&View::Page(1), 3).is_none());
     }
 
@@ -552,12 +397,20 @@ mod tests {
             ("shared and page", format!("{OK}shared = true\npage = 2\n")),
             ("bad color", format!("{OK}color = \"red\"\n")),
             ("unknown field", format!("{OK}action = \"a\"\n")),
-            ("unknown module", OK.replace("shell", "fly")),
-            ("unknown action", OK.replace("shell", "spotify")),
+            ("action without module", OK.replace("shell:a", "a")),
+            ("unknown module", OK.replace("shell:a", "fly:a")),
+            ("unknown action", OK.replace("shell:a", "spotify:fly")),
+            ("unknown symbol", format!("{OK}symbol = \"nope\"\n")),
             (
-                "bad color_by color",
+                "bad state color",
                 format!(
-                    "{OK}color_by = {{ value = \"spotify:status\", colors = {{ a = \"red\" }} }}\n"
+                    "{OK}look_by = {{ value = \"spotify:status\", states = {{ a = {{ color = \"red\" }} }} }}\n"
+                ),
+            ),
+            (
+                "bad state symbol",
+                format!(
+                    "{OK}look_by = {{ value = \"spotify:status\", states = {{ a = {{ symbol = \"nope\" }} }} }}\n"
                 ),
             ),
             ("value without module", format!("{OK}display = \"clock\"\n")),
@@ -571,12 +424,12 @@ mod tests {
                 format!("{OK}icon_value = \"spotify:title\"\n"),
             ),
             (
-                "trigger without module",
-                "[[button]]\nkey = 0\nshort_press = \"a\"\n".to_string(),
+                "while_press mixed",
+                format!("{OK}while_press = {{ press = \"shell:b\" }}\n"),
             ),
             (
-                "while_press mixed",
-                format!("{OK}while_press = {{ press = \"b\", release = \"c\" }}\n"),
+                "empty while_press",
+                "[[button]]\nkey = 0\nwhile_press = {}\n".to_string(),
             ),
         ];
         for (name, text) in cases {
@@ -592,19 +445,18 @@ mod tests {
             key = 0
             display = "spotify:title"
             icon_value = "spotify:cover"
-            color_by = { value = "spotify:status", colors = { playing = "#1DB954" } }
+            look_by = { value = "spotify:status", states = { playing = { color = "#1DB954", symbol = "pause" } } }
             "##,
         )
         .unwrap();
-        let button = &config.buttons[0];
-        assert_eq!(button.display.as_ref().unwrap().module, "spotify");
-        assert_eq!(button.display.as_ref().unwrap().name, "title");
+        let look_by = config.buttons[0].look_by.as_ref().unwrap();
+        assert_eq!(look_by.states["playing"].symbol.as_deref(), Some("pause"));
     }
 
     #[test]
     fn checks_deck_actions() {
         let deck = |action: &str, extra: &str| {
-            format!("[[button]]\nkey = 0\nmodule = \"deck\"\nshort_press = \"{action}\"\n{extra}")
+            format!("[[button]]\nkey = 0\nshort_press = \"deck:{action}\"\n{extra}")
         };
         let back_in_f = deck("back", "folder = \"f\"\n");
 
@@ -634,6 +486,17 @@ mod tests {
     }
 
     #[test]
+    fn page_key_wins_over_shared_key() {
+        let own = OK.replace("shell:a", "shell:own");
+        let config =
+            Config::parse(&format!("pages = 2\n{OK}shared = true\n{own}page = 2\n")).unwrap();
+        let shown = |page| config.shown_button(&View::Page(page), 0).unwrap();
+        assert!(shown(1).shared, "page 1 has no key 0: the shared one shows");
+        assert_eq!(shown(2).short_press, ["shell:own"]);
+        assert!(config.shown_button(&View::Folder("f".into()), 0).is_none());
+    }
+
+    #[test]
     fn example_config_is_valid() {
         Config::parse(EXAMPLE).unwrap();
     }
@@ -643,17 +506,6 @@ mod tests {
         let config = Config::parse(EXAMPLE).unwrap();
         let reloaded = Config::parse(&config.to_toml().unwrap()).unwrap();
         assert_eq!(reloaded.to_toml().unwrap(), config.to_toml().unwrap());
-    }
-
-    #[test]
-    fn page_key_wins_over_shared_key() {
-        let own = OK.replace("short_press = \"a\"", "short_press = \"own\"");
-        let config =
-            Config::parse(&format!("pages = 2\n{OK}shared = true\n{own}page = 2\n")).unwrap();
-        let shown = |page| config.shown_button(&View::Page(page), 0).unwrap();
-        assert!(shown(1).shared, "page 1 has no key 0: the shared one shows");
-        assert_eq!(shown(2).short_press.as_deref(), Some("own"));
-        assert!(config.shown_button(&View::Folder("f".into()), 0).is_none());
     }
 
     #[test]

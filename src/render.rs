@@ -1,20 +1,45 @@
-//! Turns a `KeyFace` into a 72x72 image: background color or icon, then centered text.
+//! Turns a `KeyFace` into a 72x72 image: background (color or image), then the symbol
+//! and/or text in white.
+//!
+//! Layout: symbol alone -> big and centered; text alone -> centered, wrapped;
+//! both -> symbol in the top part, text (smaller) underneath.
 
-use ab_glyph::{Font, FontRef, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontRef, OutlinedGlyph, PxScale, ScaleFont, point};
 use anyhow::{Context, Result};
 use image::{DynamicImage, Rgb, RgbImage, imageops::FilterType};
 
+use crate::icons;
 use crate::screen::KeyFace;
 
 /// Pixel size of one key on the MK.2.
 pub const KEY_SIZE: u32 = 72;
+const KEY: f32 = 72.0;
 
 /// Bundled in the binary so rendering does not depend on installed fonts.
 const FONT: &[u8] = include_bytes!("../assets/fonts/DejaVuSans-Bold.ttf");
-const MAX_TEXT_SIZE: f32 = 22.0;
 const MIN_TEXT_SIZE: f32 = 8.0;
 /// Space kept free on each side of the text.
 const MARGIN: f32 = 3.0;
+
+/// A horizontal band of the key where text is drawn.
+struct Area {
+    top: f32,
+    height: f32,
+    max_size: f32,
+}
+
+const FULL: Area = Area {
+    top: MARGIN,
+    height: KEY - 2.0 * MARGIN,
+    max_size: 22.0,
+};
+const UNDER_SYMBOL: Area = Area {
+    top: 46.0,
+    height: 24.0,
+    max_size: 13.0,
+};
+const SYMBOL_ALONE: f32 = 46.0;
+const SYMBOL_ABOVE_TEXT: f32 = 32.0;
 
 pub fn render(face: &KeyFace) -> Result<DynamicImage> {
     let mut image = match (&face.icon, face.color) {
@@ -25,82 +50,107 @@ pub fn render(face: &KeyFace) -> Result<DynamicImage> {
         (None, Some(rgb)) => RgbImage::from_pixel(KEY_SIZE, KEY_SIZE, Rgb(rgb)),
         (None, None) => RgbImage::new(KEY_SIZE, KEY_SIZE), // black
     };
-    if let Some(text) = &face.text {
-        draw_text(&mut image, text);
+    match (face.symbol, &face.text) {
+        (Some(symbol), None) => draw_symbol(&mut image, symbol, SYMBOL_ALONE, KEY / 2.0),
+        (Some(symbol), Some(text)) => {
+            draw_symbol(&mut image, symbol, SYMBOL_ABOVE_TEXT, 25.0);
+            draw_text(&mut image, text, &UNDER_SYMBOL);
+        }
+        (None, Some(text)) => draw_text(&mut image, text, &FULL),
+        (None, None) => {}
     }
     Ok(DynamicImage::ImageRgb8(image))
 }
 
-/// Draws white text centered on the key. Words wrap onto several lines, and the text
+/// Draws an icon from the icon font, centered horizontally around `center_y`.
+fn draw_symbol(image: &mut RgbImage, symbol: char, size: f32, center_y: f32) {
+    let font = icons::font();
+    let glyph = font
+        .glyph_id(symbol)
+        .with_scale_and_position(size, point(0.0, 0.0));
+    let Some(outline) = font.outline_glyph(glyph) else {
+        return;
+    };
+    // Center the drawn shape itself (glyph metrics vary a lot between emoji).
+    let bounds = outline.px_bounds();
+    let dx = KEY / 2.0 - f32::midpoint(bounds.min.x, bounds.max.x);
+    let dy = center_y - f32::midpoint(bounds.min.y, bounds.max.y);
+    paint(image, &outline, dx, dy);
+}
+
+/// Draws white text centered in `area`. Words wrap onto several lines, and the text
 /// shrinks until it fits; at the minimum size, lines that still do not fit are cut.
-// Pixel math mixes f32 font coordinates with u32 image coordinates; values are tiny (< 100).
+// Pixel math mixes f32 font coordinates with usize line counts; values are tiny (< 100).
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_precision_loss
 )]
-fn draw_text(image: &mut RgbImage, text: &str) {
+fn draw_text(image: &mut RgbImage, text: &str, area: &Area) {
     let font = FontRef::try_from_slice(FONT).expect("bundled font is valid");
-    let room = KEY_SIZE as f32 - 2.0 * MARGIN;
+    let width = KEY - 2.0 * MARGIN;
 
-    let mut size = MAX_TEXT_SIZE;
-    let mut lines = wrap(&font, size, text, room);
-    while size > MIN_TEXT_SIZE && !fits(&font, size, &lines, room) {
+    let mut size = area.max_size;
+    let mut lines = wrap(&font, size, text, width);
+    while size > MIN_TEXT_SIZE && !fits(&font, size, &lines, width, area.height) {
         size -= 1.0;
-        lines = wrap(&font, size, text, room);
+        lines = wrap(&font, size, text, width);
     }
     let line_height = font.as_scaled(PxScale::from(size)).height();
-    lines.truncate(((room / line_height) as usize).max(1));
+    lines.truncate(((area.height / line_height) as usize).max(1));
 
-    // Center the block of lines vertically.
-    let top = (KEY_SIZE as f32 - lines.len() as f32 * line_height) / 2.0;
+    // Center the block of lines vertically in the area.
+    let top = area.top + (area.height - lines.len() as f32 * line_height) / 2.0;
     for (i, line) in lines.iter().enumerate() {
         draw_line(image, &font, size, line, top + i as f32 * line_height);
     }
 }
 
 /// Draws one line of text, centered horizontally, starting at `top`.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss
-)]
 fn draw_line(image: &mut RgbImage, font: &FontRef, size: f32, line: &str, top: f32) {
     let scaled = font.as_scaled(PxScale::from(size));
-    let key = KEY_SIZE as f32;
-    let mut x = (key - text_width(font, size, line)) / 2.0;
+    let mut x = (KEY - text_width(font, size, line)) / 2.0;
     let baseline = top + scaled.ascent();
 
     for c in line.chars() {
         let id = scaled.glyph_id(c);
         let glyph = id.with_scale_and_position(size, point(x, baseline));
         x += scaled.h_advance(id);
-        let Some(outline) = font.outline_glyph(glyph) else {
-            continue; // spaces have no outline
-        };
-        let bounds = outline.px_bounds();
-        outline.draw(|gx, gy, coverage| {
-            let px = bounds.min.x + gx as f32;
-            let py = bounds.min.y + gy as f32;
-            if px < 0.0 || py < 0.0 || px >= key || py >= key {
-                return; // outside the key
-            }
-            // Blend white over the background, weighted by glyph coverage (anti-aliasing).
-            let pixel = image.get_pixel_mut(px as u32, py as u32);
-            for channel in &mut pixel.0 {
-                *channel = (f32::from(*channel) * (1.0 - coverage) + 255.0 * coverage) as u8;
-            }
-        });
+        if let Some(outline) = font.outline_glyph(glyph) {
+            paint(image, &outline, 0.0, 0.0);
+        } // spaces have no outline
     }
 }
 
-/// Splits `text` into lines no wider than `room`, breaking between words.
-/// A single word wider than `room` stays on its own line.
-fn wrap(font: &FontRef, size: f32, text: &str, room: f32) -> Vec<String> {
+/// Blends a glyph in white over the image, shifted by (dx, dy), clipped to the key.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn paint(image: &mut RgbImage, outline: &OutlinedGlyph, dx: f32, dy: f32) {
+    let bounds = outline.px_bounds();
+    outline.draw(|gx, gy, coverage| {
+        let px = bounds.min.x + gx as f32 + dx;
+        let py = bounds.min.y + gy as f32 + dy;
+        if px < 0.0 || py < 0.0 || px >= KEY || py >= KEY {
+            return; // outside the key
+        }
+        // Weighted by glyph coverage: smooth (anti-aliased) edges.
+        let pixel = image.get_pixel_mut(px as u32, py as u32);
+        for channel in &mut pixel.0 {
+            *channel = (f32::from(*channel) * (1.0 - coverage) + 255.0 * coverage) as u8;
+        }
+    });
+}
+
+/// Splits `text` into lines no wider than `width`, breaking between words.
+/// A single word wider than `width` stays on its own line.
+fn wrap(font: &FontRef, size: f32, text: &str, width: f32) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
         match lines.last_mut() {
-            Some(line) if text_width(font, size, &format!("{line} {word}")) <= room => {
+            Some(line) if text_width(font, size, &format!("{line} {word}")) <= width => {
                 line.push(' ');
                 line.push_str(word);
             }
@@ -111,9 +161,9 @@ fn wrap(font: &FontRef, size: f32, text: &str, room: f32) -> Vec<String> {
 }
 
 #[allow(clippy::cast_precision_loss)]
-fn fits(font: &FontRef, size: f32, lines: &[String], room: f32) -> bool {
-    let height = lines.len() as f32 * font.as_scaled(PxScale::from(size)).height();
-    height <= room && lines.iter().all(|l| text_width(font, size, l) <= room)
+fn fits(font: &FontRef, size: f32, lines: &[String], width: f32, height: f32) -> bool {
+    let total = lines.len() as f32 * font.as_scaled(PxScale::from(size)).height();
+    total <= height && lines.iter().all(|l| text_width(font, size, l) <= width)
 }
 
 fn text_width(font: &FontRef, size: f32, text: &str) -> f32 {
@@ -127,24 +177,44 @@ fn text_width(font: &FontRef, size: f32, text: &str) -> f32 {
 mod tests {
     use super::*;
 
+    fn white_rows(face: &KeyFace) -> Vec<u32> {
+        let image = render(face).unwrap().to_rgb8();
+        (0..KEY_SIZE)
+            .filter(|&y| (0..KEY_SIZE).any(|x| image.get_pixel(x, y).0 == [255, 255, 255]))
+            .collect()
+    }
+
     #[test]
     fn text_is_drawn_on_background() {
         let face = KeyFace {
             color: Some([0, 0, 0]),
-            icon: None,
             text: Some("12:34".into()),
+            ..KeyFace::default()
         };
         let image = render(&face).unwrap().to_rgb8();
         assert_eq!(image.dimensions(), (KEY_SIZE, KEY_SIZE));
-        assert!(
-            image.pixels().any(|p| p.0 == [255, 255, 255]),
-            "some white text pixels"
-        );
+        assert!(!white_rows(&face).is_empty(), "some white text pixels");
         assert_eq!(
             image.get_pixel(0, 0).0,
             [0, 0, 0],
             "corner keeps background"
         );
+    }
+
+    #[test]
+    fn symbol_goes_above_the_text() {
+        let symbol_only = white_rows(&KeyFace {
+            symbol: Some('▶'),
+            ..KeyFace::default()
+        });
+        assert!(!symbol_only.is_empty(), "symbol drawn");
+        let both = white_rows(&KeyFace {
+            symbol: Some('▶'),
+            text: Some("Play".into()),
+            ..KeyFace::default()
+        });
+        assert!(both.iter().any(|&y| y < 36), "symbol in the top half");
+        assert!(both.iter().any(|&y| y > 50), "text at the bottom");
     }
 
     #[test]
@@ -161,6 +231,7 @@ mod tests {
         let text = "a very long title that can never fit on such a small key at all".repeat(3);
         let face = KeyFace {
             text: Some(text),
+            symbol: Some('🎵'),
             ..KeyFace::default()
         };
         render(&face).unwrap();

@@ -8,6 +8,7 @@ pub mod config;
 pub mod deck;
 pub mod gui;
 pub mod handler;
+pub mod icons;
 pub mod modules;
 pub mod pages;
 pub mod paths;

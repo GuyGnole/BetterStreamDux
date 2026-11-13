@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result, bail, ensure};
 
+use crate::config::Button;
 use crate::{builtin, modules};
 
 pub struct ModuleInfo {
@@ -12,6 +13,26 @@ pub struct ModuleInfo {
     pub description: &'static str,
     pub actions: Actions,
     pub values: &'static [ValueInfo],
+    /// Ready-made buttons, shown in the editor's library.
+    pub presets: &'static [Preset],
+}
+
+/// A ready-made button: the fields of a `[[button]]` in config format, without its
+/// position. `{new_folder}` in an action is replaced by a folder created when placed.
+pub struct Preset {
+    pub name: &'static str,
+    pub toml: &'static str,
+}
+
+/// Written in a preset's action, replaced by a new folder's name when placed.
+pub const NEW_FOLDER: &str = "{new_folder}";
+
+impl Preset {
+    /// The preset as a button (key 0 of page 1 until it is placed).
+    pub fn button(&self) -> Result<Button> {
+        toml::from_str(&format!("key = 0\n{}", self.toml))
+            .with_context(|| format!("invalid preset '{}'", self.name))
+    }
 }
 
 pub enum Actions {
@@ -60,6 +81,10 @@ pub enum ValueKind {
 }
 
 // Short constructors, so module catalogs stay one line per entry.
+
+pub const fn preset(name: &'static str, toml: &'static str) -> Preset {
+    Preset { name, toml }
+}
 
 pub const fn action(name: &'static str, help: &'static str) -> ActionInfo {
     ActionInfo {

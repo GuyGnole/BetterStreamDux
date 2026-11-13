@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Result, bail};
 
 use super::{Countdown, MINUTE, countdown_text, minutes, notify};
-use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, split_action, state, text};
+use crate::catalog::{
+    Actions, Arg, ModuleInfo, action, action_with, preset, split_action, state, text,
+};
 use crate::modules::Module;
 
 pub const INFO: ModuleInfo = ModuleInfo {
@@ -30,6 +32,42 @@ pub const INFO: ModuleInfo = ModuleInfo {
             "status",
             "Timer state",
             &["running", "paused", "done", "idle"],
+        ),
+    ],
+    presets: &[
+        preset(
+            "Timer 5 min",
+            r##"
+symbol = "timer"
+label = "5 min"
+display = "timer:remaining"
+short_press = "timer:start 5"
+long_press = "timer:cancel"
+color = "#444444"
+look_by = { value = "timer:status", states = { running = { color = "#2980B9" }, paused = { color = "#7F8C8D" }, done = { color = "#C0392B", symbol = "alarm" } } }
+"##,
+        ),
+        preset(
+            "Timer 25 min",
+            r##"
+symbol = "timer"
+label = "25 min"
+display = "timer:remaining"
+short_press = "timer:start 25"
+long_press = "timer:cancel"
+color = "#444444"
+look_by = { value = "timer:status", states = { running = { color = "#2980B9" }, paused = { color = "#7F8C8D" }, done = { color = "#C0392B", symbol = "alarm" } } }
+"##,
+        ),
+        preset(
+            "Timer pause",
+            r##"
+symbol = "pause"
+label = "Timer"
+short_press = "timer:pause_resume"
+long_press = "timer:add_minute"
+color = "#333333"
+"##,
         ),
     ],
 };

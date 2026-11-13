@@ -1,23 +1,27 @@
-//! Right panel: the look and the action of the selected key.
+//! Right panel: the selected key's look, how its look changes with a live value, and
+//! its actions.
 //!
 //! Edits a copy of the button, then writes it back into the config if it changed
 //! (an emptied button is removed).
-
-use std::collections::BTreeMap;
 
 use eframe::egui;
 
 use super::Editor;
 use super::widgets::{self, Choices, Pick};
 use crate::catalog;
-use crate::config::{Button, ColorBy, WhilePress};
+use crate::config::{Button, Look, LookBy, WhilePress};
 use crate::pages::View;
+
+const FIELD: f32 = 200.0;
 
 pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     let Some(key) = ed.selected else {
         ui.add_space(60.0);
-        ui.vertical_centered(|ui| ui.weak("Select a key to edit it."));
+        ui.vertical_centered(|ui| {
+            ui.weak("Select a key to edit it,");
+            ui.weak("or drag a button from the library onto a key.");
+        });
         return;
     };
     if ed.config.shows_shared(&ed.view, key) {
@@ -52,10 +56,12 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new("Look")
             .default_open(true)
             .show(ui, |ui| look(ui, &mut button));
-        ui.add_space(8.0);
-        egui::CollapsingHeader::new("Action")
+        egui::CollapsingHeader::new("Changes with a live value")
+            .default_open(button.look_by.is_some())
+            .show(ui, |ui| look_by(ui, &mut button.look_by));
+        egui::CollapsingHeader::new("Actions")
             .default_open(true)
-            .show(ui, |ui| action(ui, &mut button, &choices, &ed.view));
+            .show(ui, |ui| actions(ui, &mut button, &choices, &ed.view));
     });
 
     if Some(&button) != original.as_ref() {
@@ -93,129 +99,102 @@ fn inherited_key(ed: &mut Editor, ui: &mut egui::Ui, key: u8) {
 
 fn look(ui: &mut egui::Ui, button: &mut Button) {
     form(ui, "look", |ui| {
+        ui.label("Icon");
+        widgets::symbol_picker(ui, "symbol", &mut button.symbol);
+        ui.end_row();
         ui.label("Label");
-        widgets::optional_text(ui, &mut button.label, "Text on the key");
+        widgets::optional_text(ui, &mut button.label, "Text on the key", FIELD);
         ui.end_row();
         ui.label("Color");
         widgets::optional_color(ui, &mut button.color);
         ui.end_row();
-        ui.label("Icon");
+        ui.label("Image");
         widgets::icon_file(ui, &mut button.icon);
         ui.end_row();
-    });
-
-    ui.add_space(6.0);
-    ui.strong("Live");
-    ui.weak(
-        "Values from modules. When one is unavailable (app closed), the fields above are used.",
-    );
-    form(ui, "live", |ui| {
-        ui.label("Text");
+        ui.label("Live text")
+            .on_hover_text("Replaces the label while the value is available");
         widgets::value_picker(ui, "display", &mut button.display, Pick::Text);
         ui.end_row();
-        ui.label("Image");
+        ui.label("Live image")
+            .on_hover_text("Replaces the image while the value is available");
         widgets::value_picker(ui, "icon_value", &mut button.icon_value, Pick::Image);
         ui.end_row();
-        ui.label("Color from");
-        color_by(ui, &mut button.color_by);
-        ui.end_row();
     });
 }
 
-/// Picks a value with known states, then a color for each state.
-fn color_by(ui: &mut egui::Ui, color_by: &mut Option<ColorBy>) {
-    let mut value = color_by.as_ref().map(|c| c.value.clone());
-    ui.vertical(|ui| {
-        widgets::value_picker(ui, "color_by", &mut value, Pick::States);
-        let Some(value) = value else {
-            *color_by = None;
-            return;
-        };
-        let mut colors = match color_by.take() {
-            Some(old) if old.value == value => old.colors,
-            _ => BTreeMap::new(), // new value: its states are different
-        };
-        let states = catalog::find(&value.module)
-            .and_then(|m| m.value(&value.name))
-            .map_or(&[][..], |v| v.states);
-        for state in states {
-            ui.horizontal(|ui| {
-                let mut color = colors.get(*state).cloned();
-                widgets::optional_color(ui, &mut color);
-                ui.label(format!("when {state}"));
-                match color {
-                    Some(color) => colors.insert((*state).to_string(), color),
-                    None => colors.remove(*state),
-                };
-            });
-        }
-        *color_by = Some(ColorBy { value, colors });
-    });
-}
-
-fn action(ui: &mut egui::Ui, button: &mut Button, choices: &Choices, view: &View) {
-    form(ui, "module", |ui| {
-        ui.label("Module");
-        let before = button.module.clone();
-        widgets::module_picker(ui, &mut button.module);
-        if button.module != before {
-            // Actions belong to one module.
-            button.short_press = None;
-            button.long_press = None;
-            button.while_press = None;
-        }
-        ui.end_row();
-    });
-    let Some(module) = button.module.as_deref().and_then(catalog::find) else {
-        ui.weak("Choose a module to give this key an action.");
+/// Picks a value with known states, then what each state changes.
+fn look_by(ui: &mut egui::Ui, look_by: &mut Option<LookBy>) {
+    let mut value = look_by.as_ref().map(|l| l.value.clone());
+    widgets::value_picker(ui, "look_by", &mut value, Pick::States);
+    let Some(value) = value else {
+        *look_by = None;
         return;
     };
-    ui.weak(module.description);
+    let mut states = match look_by.take() {
+        Some(old) if old.value == value => old.states,
+        _ => std::collections::BTreeMap::default(), // another value: other states
+    };
+    let names = catalog::find(&value.module)
+        .and_then(|m| m.value(&value.name))
+        .map_or(&[][..], |v| v.states);
+    ui.weak("For each state, set what changes. Empty fields keep the key's own look.");
+    egui::Grid::new("states")
+        .num_columns(4)
+        .spacing([8.0, 8.0])
+        .show(ui, |ui| {
+            for name in names {
+                let mut state = states.remove(*name).unwrap_or_default();
+                ui.label(*name);
+                widgets::optional_color(ui, &mut state.color);
+                widgets::symbol_picker(ui, ("state symbol", *name), &mut state.symbol);
+                widgets::optional_text(ui, &mut state.label, "Label", 70.0);
+                ui.end_row();
+                if state != Look::default() {
+                    states.insert((*name).to_string(), state);
+                }
+            }
+        });
+    *look_by = Some(LookBy { value, states });
+}
 
+fn actions(ui: &mut egui::Ui, button: &mut Button, choices: &Choices, view: &View) {
     let mut hold = button.while_press.is_some();
     ui.horizontal(|ui| {
         ui.radio_value(&mut hold, false, "Press")
-            .on_hover_text("An action on short press and/or one on long press");
+            .on_hover_text("Actions on short press and/or on long press");
         ui.radio_value(&mut hold, true, "Hold")
-            .on_hover_text("One action when pressed, another when released (push-to-talk)");
+            .on_hover_text("Actions when pressed, others when released (push-to-talk)");
     });
     if hold && button.while_press.is_none() {
-        button.short_press = None;
-        button.long_press = None;
+        // Keep what was set: the short press becomes the "pressed" actions.
         button.while_press = Some(WhilePress {
-            press: String::new(),
-            release: String::new(),
+            press: std::mem::take(&mut button.short_press),
+            release: Vec::new(),
         });
-    } else if !hold {
-        button.while_press = None;
+        button.long_press.clear();
+    } else if !hold && let Some(held) = button.while_press.take() {
+        button.short_press = held.press;
     }
 
-    form(ui, "triggers", |ui| {
-        if let Some(while_press) = &mut button.while_press {
-            ui.label("When pressed");
-            widgets::action_text(ui, "press", module, &mut while_press.press, choices);
-            ui.end_row();
-            ui.label("When released");
-            widgets::action_text(ui, "release", module, &mut while_press.release, choices);
-            ui.end_row();
-        } else {
-            ui.label("Short press");
-            widgets::action_picker(ui, "short", module, &mut button.short_press, choices);
-            ui.end_row();
-            ui.label("Long press");
-            widgets::action_picker(ui, "long", module, &mut button.long_press, choices);
-            ui.end_row();
-        }
-    });
-    if button.while_press.is_none() {
-        ui.weak(if button.long_press.is_some() {
-            "The short press runs when the key is released."
-        } else {
+    ui.weak("Each trigger runs its actions in order, from any modules.");
+    if let Some(held) = &mut button.while_press {
+        ui.strong("When pressed");
+        widgets::action_list(ui, "press", &mut held.press, choices);
+        ui.strong("When released");
+        widgets::action_list(ui, "release", &mut held.release, choices);
+    } else {
+        ui.strong("Short press");
+        widgets::action_list(ui, "short", &mut button.short_press, choices);
+        ui.strong("Long press");
+        widgets::action_list(ui, "long", &mut button.long_press, choices);
+        ui.weak(if button.long_press.is_empty() {
             "No long press: the short press runs instantly."
+        } else {
+            "The short press runs when the key is released."
         });
     }
-    if matches!(view, View::Folder(_)) && module.name == crate::builtin::MODULE_NAME {
-        ui.weak("Every folder needs a key with the \"back\" action.");
+    if matches!(view, View::Folder(_)) {
+        ui.weak("Every folder needs a key with the action deck: back.");
     }
 }
 
@@ -224,6 +203,6 @@ fn form(ui: &mut egui::Ui, id: &str, add_rows: impl FnOnce(&mut egui::Ui)) {
     egui::Grid::new(id)
         .num_columns(2)
         .spacing([12.0, 10.0])
-        .min_col_width(90.0)
+        .min_col_width(80.0)
         .show(ui, add_rows);
 }

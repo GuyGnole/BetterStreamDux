@@ -7,13 +7,22 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use super::Module;
-use crate::catalog::{Actions, ModuleInfo};
+use crate::catalog::{Actions, ModuleInfo, preset};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "shell",
     description: "Runs any command line",
     actions: Actions::Command,
     values: &[],
+    presets: &[preset(
+        "Run command",
+        r##"
+symbol = "keyboard"
+label = "Run"
+short_press = "shell:notify-send 'BetterStreamDux' 'Hello'"
+color = "#444444"
+"##,
+    )],
 };
 
 pub struct Shell;

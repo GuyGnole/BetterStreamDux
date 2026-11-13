@@ -1,11 +1,11 @@
-//! Config changes that touch several buttons at once: pages, folders, swapping keys.
-//! Plain functions on `Config`, tested without a window.
+//! Config changes that touch several buttons at once: pages, folders, swapping keys,
+//! placing presets. Plain functions on `Config`, tested without a window.
 
 use anyhow::{Result, ensure};
 
 use crate::builtin::MODULE_NAME;
-use crate::catalog::{join_action, split_action};
-use crate::config::{Button, Config, MAX_PAGES, WhilePress};
+use crate::catalog::{NEW_FOLDER, Preset, join_action, split_action};
+use crate::config::{Button, Config, MAX_PAGES, split_module};
 use crate::pages::View;
 
 /// Adds a main page at the end. Returns its number, or `None` if there are already 5.
@@ -50,9 +50,8 @@ pub fn add_folder(config: &mut Config) -> String {
         .find(|name| !folders.contains(name))
         .unwrap_or_default();
     config.buttons.push(Button {
-        module: Some(MODULE_NAME.into()),
-        short_press: Some("back".into()),
-        label: Some("Back".into()),
+        short_press: vec![format!("{MODULE_NAME}:back")],
+        symbol: Some("back".into()),
         color: Some("#333333".into()),
         ..Button::new(&View::Folder(name.clone()), 0)
     });
@@ -104,38 +103,73 @@ pub fn swap_keys(config: &mut Config, view: &View, a: u8, b: u8) {
     }
 }
 
+/// Puts a preset on `key` in `view`, replacing what was there. A preset that opens
+/// `{new_folder}` gets a new folder (not inside a folder: folders cannot open folders).
+pub fn place_preset(config: &mut Config, view: &View, key: u8, preset: &Preset) -> Result<()> {
+    let mut button = preset.button()?;
+    button.place(view, key);
+    if button.actions().any(|a| a.contains(NEW_FOLDER)) {
+        ensure!(
+            !matches!(view, View::Folder(_)),
+            "a folder cannot open another folder"
+        );
+        let folder = add_folder(config);
+        for action in all_actions(&mut button) {
+            *action = action.replace(NEW_FOLDER, &folder);
+        }
+    }
+    config
+        .buttons
+        .retain(|b| !(b.key == key && b.view() == *view));
+    config.buttons.push(button);
+    Ok(())
+}
+
+fn all_actions(button: &mut Button) -> impl Iterator<Item = &mut String> {
+    let held = button
+        .while_press
+        .iter_mut()
+        .flat_map(|w| w.press.iter_mut().chain(w.release.iter_mut()));
+    button
+        .short_press
+        .iter_mut()
+        .chain(button.long_press.iter_mut())
+        .chain(held)
+}
+
 /// Applies `change(name, arg)` to every deck action. `None` removes the action.
 fn rewrite_deck_actions(
     config: &mut Config,
     change: impl Fn(&str, Option<&str>) -> Option<String>,
 ) {
-    let map = |action: &str| {
-        let (name, arg) = split_action(action);
-        change(name, arg)
+    let map = |action: &String| match split_module(action) {
+        Some((MODULE_NAME, rest)) => {
+            let (name, arg) = split_action(rest);
+            change(name, arg).map(|new| format!("{MODULE_NAME}:{new}"))
+        }
+        _ => Some(action.clone()), // other modules: unchanged
     };
     for button in &mut config.buttons {
-        if button.module.as_deref() != Some(MODULE_NAME) {
-            continue;
+        button.short_press = button.short_press.iter().filter_map(map).collect();
+        button.long_press = button.long_press.iter().filter_map(map).collect();
+        if let Some(held) = &mut button.while_press {
+            held.press = held.press.iter().filter_map(map).collect();
+            held.release = held.release.iter().filter_map(map).collect();
+            if held.press.is_empty() && held.release.is_empty() {
+                button.while_press = None;
+            }
         }
-        button.short_press = button.short_press.as_deref().and_then(&map);
-        button.long_press = button.long_press.as_deref().and_then(&map);
-        button.while_press = button.while_press.take().and_then(|w| {
-            Some(WhilePress {
-                press: map(&w.press)?,
-                release: map(&w.release)?,
-            })
-        });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog;
 
     fn deck_button(view: &View, key: u8, action: &str) -> Button {
         Button {
-            module: Some(MODULE_NAME.into()),
-            short_press: Some(action.into()),
+            short_press: vec![format!("deck:{action}")],
             ..Button::new(view, key)
         }
     }
@@ -154,13 +188,9 @@ mod tests {
         assert_eq!(config.page_count(), 2);
         assert_eq!(config.buttons.len(), 3, "page 2's key is gone");
         let first = config.button(&View::Page(1), 0).unwrap();
-        assert_eq!(
-            first.short_press.as_deref(),
-            Some("go_to_page 2"),
-            "page 3 became 2"
-        );
+        assert_eq!(first.short_press, ["deck:go_to_page 2"], "page 3 became 2");
         let second = config.button(&View::Page(1), 1).unwrap();
-        assert_eq!(second.short_press, None, "pointed at the deleted page");
+        assert!(second.short_press.is_empty(), "pointed at the deleted page");
         assert!(
             config.button(&View::Page(2), 0).is_some(),
             "page 3's key moved to page 2"
@@ -191,11 +221,10 @@ mod tests {
     fn renaming_a_folder_updates_open_folder() {
         let mut config = Config::parse("").unwrap();
         let folder = add_folder(&mut config);
-        config.buttons.push(deck_button(
-            &View::Page(1),
-            0,
-            &format!("open_folder {folder}"),
-        ));
+        config.buttons.push(Button {
+            short_press: vec!["spotify:play".into(), format!("deck:open_folder {folder}")],
+            ..Button::new(&View::Page(1), 0)
+        });
 
         assert!(rename_folder(&mut config, &folder, " ").is_err());
         assert_eq!(
@@ -204,7 +233,10 @@ mod tests {
         );
         config.check().unwrap();
         let opener = config.button(&View::Page(1), 0).unwrap();
-        assert_eq!(opener.short_press.as_deref(), Some("open_folder Music"));
+        assert_eq!(
+            opener.short_press,
+            ["spotify:play", "deck:open_folder Music"]
+        );
 
         add_folder(&mut config);
         assert!(
@@ -225,7 +257,13 @@ mod tests {
         delete_folder(&mut config, &folder);
         config.check().unwrap();
         assert!(config.folders().is_empty());
-        assert_eq!(config.button(&View::Page(1), 0).unwrap().short_press, None);
+        assert!(
+            config
+                .button(&View::Page(1), 0)
+                .unwrap()
+                .short_press
+                .is_empty()
+        );
     }
 
     #[test]
@@ -237,5 +275,39 @@ mod tests {
         swap_keys(&mut config, &View::Page(1), 0, 7);
         assert!(config.button(&View::Page(1), 0).is_none());
         assert!(config.button(&View::Page(1), 7).is_some());
+    }
+
+    #[test]
+    fn every_preset_can_be_placed() {
+        for module in catalog::all() {
+            for preset in module.presets {
+                let mut config = Config::parse("").unwrap();
+                place_preset(&mut config, &View::Page(1), 3, preset).unwrap();
+                config
+                    .check()
+                    .unwrap_or_else(|err| panic!("preset '{}': {err:#}", preset.name));
+                assert!(config.button(&View::Page(1), 3).is_some());
+            }
+        }
+    }
+
+    #[test]
+    fn folder_preset_creates_its_folder_but_not_inside_a_folder() {
+        let deck = catalog::find("deck").unwrap();
+        let open_folder = deck
+            .presets
+            .iter()
+            .find(|p| p.name == "Open folder")
+            .unwrap();
+        let mut config = Config::parse("").unwrap();
+        place_preset(&mut config, &View::Page(1), 0, open_folder).unwrap();
+        assert_eq!(config.folders(), ["Folder 1"]);
+        let inside = place_preset(
+            &mut config,
+            &View::Folder("Folder 1".into()),
+            5,
+            open_folder,
+        );
+        assert!(inside.is_err());
     }
 }

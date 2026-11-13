@@ -3,14 +3,18 @@
 //! Pure function: live values come from the `values` lookup, no hardware or clock here.
 //! `deck.rs` draws the result.
 
-use crate::config::{Button, Config, KEY_COUNT, ValueRef, parse_color};
+use crate::config::{Button, Config, KEY_COUNT, Look, ValueRef, parse_color};
+use crate::icons;
 use crate::pages::View;
 
 /// What one key looks like. Compared with the previous frame to redraw only changed keys.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct KeyFace {
     pub color: Option<[u8; 3]>,
+    /// Background image file.
     pub icon: Option<String>,
+    /// Icon glyph from the bundled icon font.
+    pub symbol: Option<char>,
     pub text: Option<String>,
 }
 
@@ -34,25 +38,31 @@ pub fn build(config: &Config, view: &View, brightness: u8, values: &Values) -> S
     Screen { brightness, keys }
 }
 
-/// Live values win; the fixed fields are the fallback when a value is unavailable.
-fn face(button: &Button, values: &Values) -> KeyFace {
-    let text = button
-        .display
+/// One button's look. Order of priority: the current `look_by` state, then live values,
+/// then the button's fixed fields.
+pub fn face(button: &Button, values: &Values) -> KeyFace {
+    let state: Option<&Look> = button
+        .look_by
         .as_ref()
-        .and_then(values)
-        .or_else(|| button.label.clone());
+        .and_then(|look_by| look_by.states.get(&values(&look_by.value)?));
+    let pick =
+        |from_state: Option<&String>, own: &Option<String>| from_state.or(own.as_ref()).cloned();
+
+    let label = pick(state.and_then(|s| s.label.as_ref()), &button.label);
+    let text = button.display.as_ref().and_then(values).or(label);
+    let symbol = pick(state.and_then(|s| s.symbol.as_ref()), &button.symbol);
+    let color = pick(state.and_then(|s| s.color.as_ref()), &button.color);
     let icon = button
         .icon_value
         .as_ref()
         .and_then(values)
         .or_else(|| button.icon.clone());
-    let color = button
-        .color_by
-        .as_ref()
-        .and_then(|c| c.colors.get(&values(&c.value)?))
-        .or(button.color.as_ref())
-        .and_then(|c| parse_color(c).ok());
-    KeyFace { color, icon, text }
+    KeyFace {
+        color: color.and_then(|c| parse_color(&c).ok()),
+        icon,
+        symbol: symbol.and_then(|s| icons::glyph(&s)),
+        text,
+    }
 }
 
 #[cfg(test)]
@@ -65,9 +75,9 @@ mod tests {
         display = "deck:clock"
         [[button]]
         key = 1
-        module = "deck"
-        short_press = "open_folder f"
+        short_press = "deck:open_folder f"
         label = "Folder"
+        symbol = "folder"
         color = "#FF0000"
         [[button]]
         key = 2
@@ -75,13 +85,13 @@ mod tests {
         label = "Spotify"
         icon = "default.png"
         icon_value = "spotify:cover"
+        symbol = "play"
         color = "#000000"
-        color_by = { value = "spotify:status", colors = { playing = "#00FF00" } }
+        look_by = { value = "spotify:status", states = { playing = { color = "#00FF00", symbol = "pause" } } }
         [[button]]
         folder = "f"
         key = 0
-        module = "deck"
-        short_press = "back"
+        short_press = "deck:back"
         display = "deck:page_number"
     "##;
 
@@ -107,6 +117,7 @@ mod tests {
         let page = build(&config, &View::Page(1), 60, &values(true));
         assert_eq!(page.keys[0].text.as_deref(), Some("12:34"));
         assert_eq!(page.keys[1].text.as_deref(), Some("Folder"));
+        assert_eq!(page.keys[1].symbol, Some('📁'));
         assert_eq!(page.keys[1].color, Some([255, 0, 0]));
         assert_eq!(page.keys[3], KeyFace::default());
 
@@ -116,15 +127,16 @@ mod tests {
     }
 
     #[test]
-    fn module_values_with_fallbacks() {
+    fn state_look_then_live_values_then_fixed_fields() {
         let config = Config::parse(CONFIG).unwrap();
 
-        let open = build(&config, &View::Page(1), 60, &values(true));
+        let playing = build(&config, &View::Page(1), 60, &values(true));
         assert_eq!(
-            open.keys[2],
+            playing.keys[2],
             KeyFace {
                 color: Some([0, 255, 0]),
                 icon: Some("cover.jpg".into()),
+                symbol: Some('⏸'),
                 text: Some("Song".into())
             }
         );
@@ -135,6 +147,7 @@ mod tests {
             KeyFace {
                 color: Some([0, 0, 0]),
                 icon: Some("default.png".into()),
+                symbol: Some('▶'),
                 text: Some("Spotify".into())
             }
         );

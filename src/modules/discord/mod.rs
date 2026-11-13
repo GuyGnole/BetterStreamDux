@@ -24,7 +24,7 @@ use serde_json::{Value, json};
 use self::auth::{Credentials, Token};
 use self::ipc::Ipc;
 use super::Module;
-use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, state, text};
+use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, preset, state, text};
 
 pub const INFO: ModuleInfo = ModuleInfo {
     name: "discord",
@@ -48,6 +48,54 @@ pub const INFO: ModuleInfo = ModuleInfo {
         state("muted", "Microphone muted", &["true", "false"]),
         state("deafened", "Deafened", &["true", "false"]),
         text("channel", "Current voice channel name", "General"),
+    ],
+    presets: &[
+        preset(
+            "Mute",
+            r##"
+symbol = "mic"
+short_press = "discord:toggle_mute"
+color = "#5865F2"
+look_by = { value = "discord:muted", states = { true = { symbol = "mute", color = "#ED4245" } } }
+"##,
+        ),
+        preset(
+            "Deafen",
+            r##"
+symbol = "headphones"
+short_press = "discord:toggle_deafen"
+color = "#5865F2"
+look_by = { value = "discord:deafened", states = { true = { symbol = "mute", color = "#ED4245" } } }
+"##,
+        ),
+        preset(
+            "Push to talk",
+            r##"
+symbol = "studio_mic"
+label = "PTT"
+while_press = { press = "discord:unmute", release = "discord:mute" }
+color = "#5865F2"
+look_by = { value = "discord:muted", states = { false = { color = "#3BA55D" } } }
+"##,
+        ),
+        preset(
+            "Voice channel",
+            r##"
+symbol = "people"
+display = "discord:channel"
+label = "No voice"
+long_press = "discord:leave_channel"
+color = "#2B2D31"
+"##,
+        ),
+        preset(
+            "Discord status",
+            r##"
+symbol = "chat"
+display = "discord:status"
+color = "#2B2D31"
+"##,
+        ),
     ],
 };
 

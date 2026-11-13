@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::builtin::{self, DeckAction};
-use crate::config::{Button, Config, ValueRef};
+use crate::config::{Button, Config, ValueRef, split_module};
 use crate::modules::Registry;
 use crate::pages::{Navigator, View};
 use crate::screen::{self, Screen};
@@ -78,12 +78,10 @@ impl Handler {
             return;
         };
         if let Some(while_press) = &button.while_press {
-            self.run(&button, &while_press.press);
-        } else if button.long_press.is_none()
-            && let Some(action) = &button.short_press
-        {
+            self.run_all(&while_press.press);
+        } else if button.long_press.is_empty() {
             // No long press to tell apart: run right away instead of waiting for release.
-            self.run(&button, action);
+            self.run_all(&button.short_press);
         }
         // Otherwise: short or long? We only know on release or when the delay runs out (`tick`).
         self.pressed.insert(
@@ -102,44 +100,49 @@ impl Handler {
         };
         let button = &pressed.button;
         if let Some(while_press) = &button.while_press {
-            self.run(button, &while_press.release);
-        } else if button.long_press.is_some()
-            && !pressed.long_press_done
-            && let Some(action) = &button.short_press
-        {
-            self.run(button, action);
+            self.run_all(&while_press.release);
+        } else if !button.long_press.is_empty() && !pressed.long_press_done {
+            self.run_all(&button.short_press);
         }
     }
 
-    /// Call regularly: fires `long_press` for keys held long enough.
+    /// Call regularly: lets modules update, and fires `long_press` for keys held long enough.
     pub fn tick(&mut self, now: Instant) {
         self.modules.tick();
         let mut due = Vec::new();
         for pressed in self.pressed.values_mut() {
-            if let Some(action) = &pressed.button.long_press
+            if !pressed.button.long_press.is_empty()
                 && !pressed.long_press_done
                 && now - pressed.since >= self.long_press
             {
                 pressed.long_press_done = true;
-                due.push((pressed.button.clone(), action.clone()));
+                due.push(pressed.button.long_press.clone());
             }
         }
-        for (button, action) in due {
-            self.run(&button, &action);
+        for actions in due {
+            self.run_all(&actions);
         }
     }
 
-    /// Runs one action. Errors are logged, they must never stop the program.
-    fn run(&mut self, button: &Button, action: &str) {
-        let module = button.module.as_deref().unwrap_or_default();
-        log::info!("{module}::{action}");
-        let result = if module == builtin::MODULE_NAME {
-            DeckAction::parse(action).map(|a| self.run_deck_action(a))
-        } else {
-            self.modules.run(module, action)
+    /// Runs actions in order. A failing one is logged and the next ones still run.
+    fn run_all(&mut self, actions: &[String]) {
+        for action in actions {
+            self.run(action);
+        }
+    }
+
+    /// Runs one "module:action". Errors are logged, they must never stop the program.
+    fn run(&mut self, action: &str) {
+        log::info!("{action}");
+        let result = match split_module(action) {
+            Some((builtin::MODULE_NAME, rest)) => {
+                DeckAction::parse(rest).map(|a| self.run_deck_action(a))
+            }
+            Some((module, rest)) => self.modules.run(module, rest),
+            None => Err(anyhow::anyhow!("no module in '{action}'")),
         };
         if let Err(err) = result {
-            log::error!("{module}::{action} failed: {err:#}");
+            log::error!("{action} failed: {err:#}");
         }
     }
 
@@ -185,40 +188,35 @@ mod tests {
             long_press_ms = 500
             [[button]]
             key = 0
-            module = "shell"
-            short_press = "quick"
+            short_press = "shell:quick"
             [[button]]
             key = 1
-            module = "shell"
-            short_press = "short"
-            long_press = "long"
+            short_press = "shell:short"
+            long_press = "shell:long"
             [[button]]
             key = 2
-            module = "shell"
-            while_press = { press = "down", release = "up" }
+            while_press = { press = "shell:down", release = "shell:up" }
             [[button]]
             key = 3
-            module = "deck"
-            short_press = "next_page"
+            short_press = "deck:next_page"
             [[button]]
             key = 4
-            module = "deck"
-            short_press = "brightness_up"
+            short_press = "deck:brightness_up"
             [[button]]
             key = 5
-            module = "deck"
-            short_press = "open_folder f"
+            short_press = "deck:open_folder f"
+            [[button]]
+            key = 6
+            short_press = ["shell:first", "deck:next_page", "shell:second"]
             [[button]]
             page = 2
             key = 2
-            module = "shell"
-            short_press = "page2"
+            short_press = "shell:page2"
             display = "deck:page_number"
             [[button]]
             folder = "f"
             key = 0
-            module = "deck"
-            short_press = "back"
+            short_press = "deck:back"
             display = "deck:page_number"
             "#,
         )
@@ -341,8 +339,7 @@ mod tests {
         let (mut h, log) = setup();
         let mut config = h.config.clone();
         config.buttons.push(Button {
-            module: Some("shell".into()),
-            short_press: Some("shared".into()),
+            short_press: vec!["shell:shared".into()],
             ..Button::new(&View::Shared, 9)
         });
         h.set_config(config);
@@ -353,6 +350,18 @@ mod tests {
         tap(&mut h, 5); // open folder f
         tap(&mut h, 9); // nothing in the folder
         assert_eq!(*log.borrow(), ["shared", "shared"]);
+    }
+
+    #[test]
+    fn a_key_runs_actions_from_several_modules_in_order() {
+        let (mut h, log) = setup();
+        tap(&mut h, 6);
+        assert_eq!(*log.borrow(), ["first", "second"]);
+        assert_eq!(
+            text(&h, 2).as_deref(),
+            Some("2/2"),
+            "and changed page in between"
+        );
     }
 
     #[test]

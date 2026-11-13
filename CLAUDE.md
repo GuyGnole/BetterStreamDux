@@ -21,7 +21,9 @@ Rust app controlling an Elgato Stream Deck MK.2 on Fedora (Wayland). See README.
 - Modules that change over time implement `Module::tick()` (called every 50 ms, must be instant); module settings come through `Module::configure(&Config)`. Time-based logic takes `now: Instant` so tests never sleep (see `modules/tools/`).
 - `Module::value()` is called every 50 ms tick: never block in it. Slow reads (D-Bus, sockets, HTTP) go in the module's background thread, shared through `Arc<Mutex<..>>`.
 - Document each module's actions and values in its `//!` header and in the README table.
-- New config fields go in `src/config.rs` (with `skip_serializing_if` for options), an editor input in `src/gui/inspector.rs`, and a line in the README field table.
+- New config fields go in `src/config/button.rs` (with `skip_serializing_if` for options), an editor input in `src/gui/inspector.rs`, and a line in the README field table. A format change needs a conversion in `src/config/migrate.rs` (users have existing configs).
+- Actions are always `module:action` strings; a trigger is a list. Presets are config-format TOML in each module's `INFO.presets`.
+- Icons: names in `src/icons.rs` (a test checks every glyph exists in the bundled font).
 - New module: update the module table in README.md.
 
 ## Before finishing a task
