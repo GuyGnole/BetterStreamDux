@@ -4,9 +4,7 @@
 //!   `~/.config/betterstreamdux/discord.toml`             `client_id` + `client_secret`, written by you
 //!   `~/.local/state/betterstreamdux/discord-token.json`  login token, written and renewed by us
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -57,19 +55,7 @@ impl Token {
 
     /// Saves the token, readable only by you (it gives access to your Discord voice).
     pub fn save(&self) -> Result<()> {
-        let path = token_path()?;
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&path)
-            .with_context(|| format!("cannot write {}", path.display()))?;
-        file.write_all(serde_json::to_string(self)?.as_bytes())?;
-        Ok(())
+        paths::write_private(&token_path()?, &serde_json::to_string(self)?)
     }
 
     /// Forgets the saved token: next connection asks for approval again.

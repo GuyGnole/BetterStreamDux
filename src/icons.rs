@@ -125,7 +125,9 @@ pub const ICONS: &[Icon] = &[
     icon("rocket", '🚀', "launch start"),
     icon("target", '🎯', "goal focus"),
     icon("trophy", '🏆', "win"),
-    icon("heart", '❤', "love like"),
+    // ♥ rather than ❤: the font draws ❤ striped.
+    icon("heart", '♥', "love like"),
+    icon("heart_outline", '🤍', "love like empty white"),
     icon("thumbs_up", '👍', "like yes"),
     icon("thumbs_down", '👎', "dislike no"),
     icon("dice", '🎲', "random game"),
@@ -169,6 +171,7 @@ mod tests {
     #[test]
     fn finds_names_and_raw_emoji() {
         assert_eq!(glyph("play"), Some('▶'));
+        assert_eq!(glyph("heart_outline"), Some('🤍'));
         assert_eq!(glyph("🦊"), Some('🦊'));
         assert_eq!(glyph("⚙\u{FE0F}"), Some('⚙'));
         assert_eq!(glyph("nope"), None);

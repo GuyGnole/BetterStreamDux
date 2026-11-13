@@ -1,7 +1,10 @@
 //! Per-user directories for module files (XDG standard).
 
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -18,6 +21,22 @@ pub fn state_dir() -> Result<PathBuf> {
 /// `~/.cache/betterstreamdux`: files that can be deleted anytime (album covers...).
 pub fn cache_dir() -> Result<PathBuf> {
     xdg_dir("XDG_CACHE_HOME", ".cache")
+}
+
+/// Writes a file only you can read (login tokens), creating its directory if needed.
+pub fn write_private(path: &Path, contents: &str) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    }
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    file.write_all(contents.as_bytes())
+        .with_context(|| format!("cannot write {}", path.display()))
 }
 
 /// `$VAR/betterstreamdux`, or `$HOME/<fallback>/betterstreamdux` when `$VAR` is unset.

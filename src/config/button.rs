@@ -50,6 +50,9 @@ pub struct Button {
     /// Background color as "#RRGGBB".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    /// Symbol color as "#RRGGBB". Default: white.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_color: Option<String>,
     /// Path to a png/jpg image, drawn as the background.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
@@ -146,6 +149,8 @@ pub struct Look {
     pub color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol_color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -270,9 +275,11 @@ impl Button {
     /// Every color this button can show.
     pub fn colors(&self) -> impl Iterator<Item = &String> {
         let states = self.look_by.iter().flat_map(|l| l.states.values());
+        let state_colors = states.flat_map(|look| look.color.iter().chain(&look.symbol_color));
         self.color
             .iter()
-            .chain(states.filter_map(|look| look.color.as_ref()))
+            .chain(&self.symbol_color)
+            .chain(state_colors)
     }
 
     /// Every live value this button reads, with the kind it needs.

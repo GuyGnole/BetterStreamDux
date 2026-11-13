@@ -13,8 +13,10 @@ pub struct KeyFace {
     pub color: Option<[u8; 3]>,
     /// Background image file.
     pub icon: Option<String>,
-    /// Icon glyph from the bundled icon font.
+    /// Icon glyph from the bundled fonts.
     pub symbol: Option<char>,
+    /// Symbol color. `None`: white.
+    pub symbol_color: Option<[u8; 3]>,
     pub text: Option<String>,
     /// Key held down: drawn smaller, so it looks pushed in.
     pub pressed: bool,
@@ -64,6 +66,10 @@ pub fn face(button: &Button, values: &Values) -> KeyFace {
     let text = button.display.as_ref().and_then(values).or(label);
     let symbol = pick(state.and_then(|s| s.symbol.as_ref()), &button.symbol);
     let color = pick(state.and_then(|s| s.color.as_ref()), &button.color);
+    let symbol_color = pick(
+        state.and_then(|s| s.symbol_color.as_ref()),
+        &button.symbol_color,
+    );
     let icon = button
         .icon_value
         .as_ref()
@@ -73,6 +79,7 @@ pub fn face(button: &Button, values: &Values) -> KeyFace {
         color: color.and_then(|c| parse_color(&c).ok()),
         icon,
         symbol: symbol.and_then(|s| icons::glyph(&s)),
+        symbol_color: symbol_color.and_then(|c| parse_color(&c).ok()),
         text,
         pressed: false,
     }
@@ -100,7 +107,7 @@ mod tests {
         icon_value = "spotify:cover"
         symbol = "play"
         color = "#000000"
-        look_by = { value = "spotify:status", states = { playing = { color = "#00FF00", symbol = "pause" } } }
+        look_by = { value = "spotify:status", states = { playing = { color = "#00FF00", symbol = "pause", symbol_color = "#112233" } } }
         [[button]]
         folder = "f"
         key = 0
@@ -150,6 +157,7 @@ mod tests {
                 color: Some([0, 255, 0]),
                 icon: Some("cover.jpg".into()),
                 symbol: Some('⏸'),
+                symbol_color: Some([0x11, 0x22, 0x33]),
                 text: Some("Song".into()),
                 pressed: false
             }
@@ -162,6 +170,7 @@ mod tests {
                 color: Some([0, 0, 0]),
                 icon: Some("default.png".into()),
                 symbol: Some('▶'),
+                symbol_color: None,
                 text: Some("Spotify".into()),
                 pressed: false
             }

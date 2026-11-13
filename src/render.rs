@@ -1,5 +1,5 @@
 //! Turns a `KeyFace` into a 72x72 image: background (color or image), then the symbol
-//! and/or text in white.
+//! (white unless the button sets `symbol_color`) and/or text in white.
 //!
 //! Layout: symbol alone -> big and centered; text alone -> centered, wrapped;
 //! both -> symbol in the top part, text (smaller) underneath.
@@ -11,6 +11,8 @@ use image::{DynamicImage, Rgb, RgbImage, imageops, imageops::FilterType};
 
 use crate::icons;
 use crate::screen::KeyFace;
+
+const WHITE: [u8; 3] = [255, 255, 255];
 
 /// Pixel size of one key on the MK.2.
 pub const KEY_SIZE: u32 = 72;
@@ -53,10 +55,13 @@ pub fn render(face: &KeyFace) -> Result<DynamicImage> {
         (None, Some(rgb)) => RgbImage::from_pixel(KEY_SIZE, KEY_SIZE, Rgb(rgb)),
         (None, None) => RgbImage::new(KEY_SIZE, KEY_SIZE), // black
     };
+    let symbol_color = face.symbol_color.unwrap_or(WHITE);
     match (face.symbol, &face.text) {
-        (Some(symbol), None) => draw_symbol(&mut image, symbol, SYMBOL_ALONE, KEY / 2.0),
+        (Some(symbol), None) => {
+            draw_symbol(&mut image, symbol, symbol_color, SYMBOL_ALONE, KEY / 2.0);
+        }
         (Some(symbol), Some(text)) => {
-            draw_symbol(&mut image, symbol, SYMBOL_ABOVE_TEXT, 25.0);
+            draw_symbol(&mut image, symbol, symbol_color, SYMBOL_ABOVE_TEXT, 25.0);
             draw_text(&mut image, text, &UNDER_SYMBOL);
         }
         (None, Some(text)) => draw_text(&mut image, text, &FULL),
@@ -77,8 +82,8 @@ fn shrink(image: &RgbImage) -> RgbImage {
     out
 }
 
-/// Draws an icon from the icon font, centered horizontally around `center_y`.
-fn draw_symbol(image: &mut RgbImage, symbol: char, size: f32, center_y: f32) {
+/// Draws an icon in `color`, centered horizontally around `center_y`.
+fn draw_symbol(image: &mut RgbImage, symbol: char, color: [u8; 3], size: f32, center_y: f32) {
     let font = icons::font();
     let glyph = font
         .glyph_id(symbol)
@@ -90,7 +95,7 @@ fn draw_symbol(image: &mut RgbImage, symbol: char, size: f32, center_y: f32) {
     let bounds = outline.px_bounds();
     let dx = KEY / 2.0 - f32::midpoint(bounds.min.x, bounds.max.x);
     let dy = center_y - f32::midpoint(bounds.min.y, bounds.max.y);
-    paint(image, &outline, dx, dy);
+    paint(image, &outline, color, dx, dy);
 }
 
 /// Draws white text centered in `area`. Words wrap onto several lines, and the text
@@ -132,18 +137,18 @@ fn draw_line(image: &mut RgbImage, font: &FontRef, size: f32, line: &str, top: f
         let glyph = id.with_scale_and_position(size, point(x, baseline));
         x += scaled.h_advance(id);
         if let Some(outline) = font.outline_glyph(glyph) {
-            paint(image, &outline, 0.0, 0.0);
+            paint(image, &outline, WHITE, 0.0, 0.0);
         } // spaces have no outline
     }
 }
 
-/// Blends a glyph in white over the image, shifted by (dx, dy), clipped to the key.
+/// Blends a glyph in `color` over the image, shifted by (dx, dy), clipped to the key.
 #[allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_precision_loss
 )]
-fn paint(image: &mut RgbImage, outline: &OutlinedGlyph, dx: f32, dy: f32) {
+fn paint(image: &mut RgbImage, outline: &OutlinedGlyph, color: [u8; 3], dx: f32, dy: f32) {
     let bounds = outline.px_bounds();
     outline.draw(|gx, gy, coverage| {
         let px = bounds.min.x + gx as f32 + dx;
@@ -153,8 +158,9 @@ fn paint(image: &mut RgbImage, outline: &OutlinedGlyph, dx: f32, dy: f32) {
         }
         // Weighted by glyph coverage: smooth (anti-aliased) edges.
         let pixel = image.get_pixel_mut(px as u32, py as u32);
-        for channel in &mut pixel.0 {
-            *channel = (f32::from(*channel) * (1.0 - coverage) + 255.0 * coverage) as u8;
+        for (channel, target) in pixel.0.iter_mut().zip(color) {
+            *channel =
+                (f32::from(*channel) * (1.0 - coverage) + f32::from(target) * coverage) as u8;
         }
     });
 }

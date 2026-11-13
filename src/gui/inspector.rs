@@ -102,6 +102,9 @@ fn look(ui: &mut egui::Ui, button: &mut Button) {
         ui.label("Icon");
         widgets::symbol_picker(ui, "symbol", &mut button.symbol);
         ui.end_row();
+        ui.label("Icon color").on_hover_text("Default: white");
+        widgets::optional_color(ui, &mut button.symbol_color);
+        ui.end_row();
         ui.label("Label");
         widgets::optional_text(ui, &mut button.label, "Text on the key", FIELD);
         ui.end_row();
@@ -137,9 +140,11 @@ fn look_by(ui: &mut egui::Ui, look_by: &mut Option<LookBy>) {
     let names = catalog::find(&value.module)
         .and_then(|m| m.value(&value.name))
         .map_or(&[][..], |v| v.states);
-    ui.weak("For each state, set what changes. Empty fields keep the key's own look.");
+    ui.weak(
+        "For each state: color, icon, icon color, label. Empty fields keep the key's own look.",
+    );
     egui::Grid::new("states")
-        .num_columns(4)
+        .num_columns(5)
         .spacing([8.0, 8.0])
         .show(ui, |ui| {
             for name in names {
@@ -147,6 +152,8 @@ fn look_by(ui: &mut egui::Ui, look_by: &mut Option<LookBy>) {
                 ui.label(*name);
                 widgets::optional_color(ui, &mut state.color);
                 widgets::symbol_picker(ui, ("state symbol", *name), &mut state.symbol);
+                // Next to the icon, so it reads as the icon's color.
+                widgets::optional_color(ui, &mut state.symbol_color);
                 widgets::optional_text(ui, &mut state.label, "Label", 70.0);
                 ui.end_row();
                 if state != Look::default() {

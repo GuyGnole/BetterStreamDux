@@ -84,10 +84,11 @@ The config is TOML. Each `[[button]]` is one key on one page or folder:
 | `symbol` | icon: a name from `src/icons.rs` (`play`, `mic`, `timer`, `folder`...) or any emoji |
 | `label` | fixed text (under the icon if there is one) |
 | `color` | background, `"#RRGGBB"` |
+| `symbol_color` | icon color, `"#RRGGBB"` (default white) |
 | `icon` | image file (png/jpg) as background, replaces the color |
 | `display` | live text, e.g. `"spotify:title"`, replaces the label |
 | `icon_value` | live background image, e.g. `"spotify:cover"`, replaces `icon` |
-| `look_by` | look depending on a live value, per state: `{ value = "spotify:status", states = { playing = { symbol = "pause", color = "#1DB954" } } }` (each state may set `color`, `symbol`, `label`) |
+| `look_by` | look depending on a live value, per state: `{ value = "spotify:status", states = { playing = { symbol = "pause", color = "#1DB954" } } }` (each state may set `color`, `symbol`, `symbol_color`, `label`) |
 | `short_press`, `long_press`, `while_press` | the actions, see Triggers |
 
 **Actions** are written `"module:action"`, e.g. `"spotify:next"` or `"deck:go_to_page 2"`.
@@ -139,7 +140,7 @@ mixed triggers, missing folder, typos...) are reported at startup.
 
 | Module    | Actions | Values | Status |
 |-----------|---------|--------|--------|
-| `spotify` | `play_pause`, `play`, `pause`, `next`, `previous`, `stop`, `volume_up`, `volume_down`, `seek_forward`, `seek_back` | `status`, `title`, `artist`, `album`, `volume`, `cover` | working (MPRIS, no account needed) |
+| `spotify` | `play_pause`, `play`, `pause`, `next`, `previous`, `stop`, `volume_up`, `volume_down`, `seek_forward`, `seek_back`, `like`, `unlike`, `toggle_like`, `dislike` | `status`, `title`, `artist`, `album`, `volume`, `cover`, `liked` (yes/no) | working (MPRIS, no account needed; likes need the [Spotify setup](#spotify-setup-once-for-likes)) |
 | `discord` | `mute`, `unmute`, `toggle_mute`, `deafen`, `undeafen`, `toggle_deafen`, `join_channel ID`, `leave_channel` | `status`, `muted`, `deafened`, `channel` | working (needs the setup below) |
 | `shell`   | any command line | | working |
 | `timer`   | `start N` (minutes), `pause_resume`, `add_minute`, `cancel` | `remaining`, `status` | built-in, ids, notifies when done (stays on screen) |
@@ -149,6 +150,30 @@ mixed triggers, missing folder, typos...) are reported at startup.
 | `deck`    | `next_page`, `previous_page`, `go_to_page N`, `open_folder NAME`, `back`, `brightness_up`, `brightness_down` | `clock`, `page_number`, `brightness` | built-in |
 
 Spotify shuffle/repeat are not supported: the Linux app ignores them over MPRIS.
+
+## Spotify setup (once, for likes)
+
+Playback works without this. Liking songs uses the Spotify Web API, which needs your own
+(free) Spotify app; Spotify requires a **Premium** account for it.
+
+1. Go to <https://developer.spotify.com/dashboard>, click **Create app**:
+   - name and description: e.g. `BetterStreamDux`;
+   - **Redirect URI**: `http://127.0.0.1:8888/callback` (click **Add**);
+   - tick **Web API**, accept the terms, **Save**.
+2. In the app's **Settings**, copy the **Client ID**, click **View client secret** and copy it.
+3. Create `~/.config/betterstreamdux/spotify.toml` (keep it private, never commit it):
+   ```toml
+   client_id = "your client id"
+   client_secret = "your client secret"
+   ```
+   then `chmod 600 ~/.config/betterstreamdux/spotify.toml`.
+4. Press a like key: your browser opens Spotify's approval page, click **Agree**. The
+   login is saved in `~/.local/state/betterstreamdux/spotify-token.json` and renewed
+   automatically; delete that file to log in again.
+
+`liked` is checked when the track changes, then every 30 s (so likes made in the Spotify
+app show up too). `dislike` removes the track from Liked Songs and skips it: Spotify's API
+has no "hide song".
 
 ## Discord setup (once)
 
@@ -197,7 +222,7 @@ src/
                    history.rs (undo/redo)
   modules/
     mod.rs         Module trait + registry
-    spotify.rs     one file per application
+    spotify/       mod.rs (MPRIS playback), auth.rs (Web API login), web.rs (likes)
     discord/       mod.rs (actions, values), ipc.rs (local socket), auth.rs (login)
     shell.rs
     tools/         built-in tools: timer, stopwatch, pomodoro, counter (+ shared countdown,
@@ -210,9 +235,9 @@ systemd/           user service to run the daemon in the background
 
 ## Add a module
 
-1. Create `src/modules/<app>.rs` with a struct implementing `Module` (copy `spotify.rs`).
+1. Create `src/modules/<app>.rs` with a struct implementing `Module` (copy `shell.rs`, or `spotify/mod.rs` for one with a background thread).
    `run()` performs actions; `value()` returns live values and must be instant, so read
-   the application's state in a background thread (see `spotify.rs`).
+   the application's state in a background thread (see `spotify/mod.rs`).
 2. Declare its actions, values and presets in a `pub const INFO: ModuleInfo` in the same
    file: the config check, the editor's dropdowns and its library use it. A preset is a
    `[[button]]` body in config format (see the existing modules); a test checks each one.
