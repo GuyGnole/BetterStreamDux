@@ -140,6 +140,86 @@ key = 9
 display = "discord:status"
 color = "#2B2D31"
 
+# ---------- Page 3: tools ----------
+
+# Pomodoro: press to start/pause, hold to reset. Red while working, green on breaks.
+[[button]]
+page = 3
+key = 0
+module = "pomodoro"
+short_press = "start_pause"
+long_press = "reset"
+display = "pomodoro:remaining"
+label = "Pomodoro"
+color = "#444444"
+color_by = { value = "pomodoro:phase", colors = { work = "#C0392B", break = "#27AE60", long_break = "#2980B9" } }
+
+[[button]]
+page = 3
+key = 1
+module = "pomodoro"
+short_press = "skip"
+label = "Skip"
+color = "#333333"
+
+# 5 minute timer: press to start, hold to cancel. Red when done.
+[[button]]
+page = 3
+key = 3
+module = "timer"
+short_press = "start 5"
+long_press = "cancel"
+display = "timer:remaining"
+label = "5 min"
+color = "#444444"
+color_by = { value = "timer:status", colors = { running = "#2980B9", paused = "#7F8C8D", done = "#C0392B" } }
+
+[[button]]
+page = 3
+key = 4
+module = "timer"
+short_press = "pause_resume"
+long_press = "add_minute"
+label = "Pause"
+color = "#333333"
+
+# Stopwatch: press to start/stop, hold to reset.
+[[button]]
+page = 3
+key = 5
+module = "stopwatch"
+short_press = "start_stop"
+long_press = "reset"
+display = "stopwatch:elapsed"
+label = "Stopwatch"
+color = "#444444"
+color_by = { value = "stopwatch:status", colors = { running = "#27AE60" } }
+
+# Counter: - / count (hold to reset) / +
+[[button]]
+page = 3
+key = 7
+module = "counter"
+short_press = "decrement"
+label = "-"
+color = "#333333"
+
+[[button]]
+page = 3
+key = 8
+module = "counter"
+long_press = "reset"
+display = "counter:count"
+color = "#222222"
+
+[[button]]
+page = 3
+key = 9
+module = "counter"
+short_press = "increment"
+label = "+"
+color = "#333333"
+
 # ---------- All pages: navigation bar (bottom row) ----------
 # `shared = true` keys appear on every page, unless a page has its own key there.
 

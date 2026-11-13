@@ -198,6 +198,7 @@ fn default_arg(arg: Arg, choices: &Choices) -> Option<String> {
         Arg::Page => Some("1".into()),
         Arg::Folder => Some(choices.folders.first().cloned().unwrap_or_default()),
         Arg::Id => Some(String::new()),
+        Arg::Minutes => Some("5".into()),
     }
 }
 
@@ -228,6 +229,15 @@ fn arg_input(ui: &mut egui::Ui, id: &str, kind: Arg, arg: &mut String, choices: 
                         ui.selectable_value(arg, folder.clone(), folder.as_str());
                     }
                 });
+        }
+        Arg::Minutes => {
+            let mut minutes: u32 = arg.parse().unwrap_or(5);
+            ui.add(
+                egui::DragValue::new(&mut minutes)
+                    .range(1..=1440)
+                    .suffix(" min"),
+            );
+            *arg = minutes.to_string();
         }
         Arg::Id => {
             let field = egui::TextEdit::singleline(arg)

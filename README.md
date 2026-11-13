@@ -63,6 +63,16 @@ The config is TOML. Each `[[button]]` is one key on one page or folder:
 Top-level fields: `brightness` (10-100), `long_press_ms` (default 500), `pages` (number of
 main pages, optional).
 
+Pomodoro durations (also in the editor, under "Pomodoro settings"):
+
+```toml
+[pomodoro]
+work_minutes = 25
+break_minutes = 5
+long_break_minutes = 15
+rounds = 4          # a long break after this many work rounds
+```
+
 **Pages and folders**: up to 5 main pages (`page = 1..5`, default 1). A folder
 (`folder = "name"`) is one extra page opened from a main page with the `open_folder name`
 deck action. `back` returns to that page. Folders cannot open folders, and every folder
@@ -90,6 +100,10 @@ mixed triggers, missing folder, typos...) are reported at startup.
 | `spotify` | `play_pause`, `play`, `pause`, `next`, `previous`, `stop`, `volume_up`, `volume_down`, `seek_forward`, `seek_back` | `status`, `title`, `artist`, `album`, `volume`, `cover` | working (MPRIS, no account needed) |
 | `discord` | `mute`, `unmute`, `toggle_mute`, `deafen`, `undeafen`, `toggle_deafen`, `join_channel ID`, `leave_channel` | `status`, `muted`, `deafened`, `channel` | working (needs the setup below) |
 | `shell`   | any command line | | working |
+| `timer`   | `start N` (minutes), `pause_resume`, `add_minute`, `cancel` | `remaining`, `status` | built-in, notifies when done |
+| `stopwatch` | `start_stop`, `reset` | `elapsed`, `status` | built-in |
+| `pomodoro` | `start_pause`, `skip`, `reset` | `remaining`, `phase`, `status`, `done` | built-in, notifies at each phase |
+| `counter` | `increment`, `decrement`, `reset` | `count` | built-in, kept across restarts |
 | `deck`    | `next_page`, `previous_page`, `go_to_page N`, `open_folder NAME`, `back`, `brightness_up`, `brightness_down` | `clock`, `page_number`, `brightness` | built-in |
 
 Spotify shuffle/repeat are not supported: the Linux app ignores them over MPRIS.
@@ -141,6 +155,8 @@ src/
     spotify.rs     one file per application
     discord/       mod.rs (actions, values), ipc.rs (local socket), auth.rs (login)
     shell.rs
+    tools/         built-in tools: timer, stopwatch, pomodoro, counter (+ shared countdown,
+                   notifications)
 config.example.toml  example key bindings, copied on first run
 assets/fonts/      bundled font (DejaVu Sans Bold, license next to it)
 udev/              permission rule for the device

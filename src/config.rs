@@ -37,8 +37,33 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pages: Option<u8>,
 
+    #[serde(default)]
+    pub pomodoro: PomodoroSettings,
+
     #[serde(default, rename = "button")]
     pub buttons: Vec<Button>,
+}
+
+/// Durations of the pomodoro module, in minutes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PomodoroSettings {
+    pub work_minutes: u32,
+    pub break_minutes: u32,
+    pub long_break_minutes: u32,
+    /// A long break comes after this many work rounds.
+    pub rounds: u32,
+}
+
+impl Default for PomodoroSettings {
+    fn default() -> Self {
+        Self {
+            work_minutes: 25,
+            break_minutes: 5,
+            long_break_minutes: 15,
+            rounds: 4,
+        }
+    }
 }
 
 /// One key binding on one page or folder.
@@ -331,6 +356,22 @@ impl Config {
                 "pages must be between 1 and {MAX_PAGES}"
             );
         }
+        let p = &self.pomodoro;
+        for (name, minutes) in [
+            ("work_minutes", p.work_minutes),
+            ("break_minutes", p.break_minutes),
+            ("long_break_minutes", p.long_break_minutes),
+        ] {
+            ensure!(
+                (1..=600).contains(&minutes),
+                "pomodoro {name} must be between 1 and 600"
+            );
+        }
+        ensure!(
+            (1..=20).contains(&p.rounds),
+            "pomodoro rounds must be between 1 and 20"
+        );
+
         let mut seen = HashSet::new();
         for button in &self.buttons {
             let place = match button.view() {

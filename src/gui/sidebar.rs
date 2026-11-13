@@ -3,7 +3,7 @@
 use eframe::egui;
 
 use super::{Editor, edit};
-use crate::config::MAX_PAGES;
+use crate::config::{MAX_PAGES, PomodoroSettings};
 use crate::pages::View;
 
 pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
@@ -74,9 +74,35 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
         ed.show_view(View::Folder(name));
     }
 
+    ui.add_space(12.0);
+    ui.separator();
+    egui::CollapsingHeader::new("Pomodoro settings")
+        .show(ui, |ui| pomodoro_settings(ui, &mut ed.config.pomodoro));
+
     ui.add_space(16.0);
     ui.weak("Right-click a page or folder to rename or delete it.");
     ui.weak("A key opens a folder with the deck action \"open_folder\".");
+}
+
+fn pomodoro_settings(ui: &mut egui::Ui, settings: &mut PomodoroSettings) {
+    egui::Grid::new("pomodoro").num_columns(2).show(ui, |ui| {
+        for (name, minutes) in [
+            ("Work", &mut settings.work_minutes),
+            ("Break", &mut settings.break_minutes),
+            ("Long break", &mut settings.long_break_minutes),
+        ] {
+            ui.label(name);
+            ui.add(egui::DragValue::new(minutes).range(1..=600).suffix(" min"));
+            ui.end_row();
+        }
+        ui.label("Long break every");
+        ui.add(
+            egui::DragValue::new(&mut settings.rounds)
+                .range(1..=20)
+                .suffix(" rounds"),
+        );
+        ui.end_row();
+    });
 }
 
 /// A full-width selectable line.

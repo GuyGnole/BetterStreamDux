@@ -8,15 +8,25 @@
 mod discord;
 mod shell;
 mod spotify;
+mod tools;
 
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
 
 use crate::catalog::ModuleInfo;
+use crate::config::Config;
 
 /// What each module offers (see `catalog.rs`). Add new modules here too.
-pub const INFOS: [&ModuleInfo; 3] = [&spotify::INFO, &discord::INFO, &shell::INFO];
+pub const INFOS: [&ModuleInfo; 7] = [
+    &spotify::INFO,
+    &discord::INFO,
+    &shell::INFO,
+    &tools::timer::INFO,
+    &tools::stopwatch::INFO,
+    &tools::pomodoro::INFO,
+    &tools::counter::INFO,
+];
 
 /// Something a Stream Deck key can control.
 pub trait Module {
@@ -31,6 +41,12 @@ pub trait Module {
     fn value(&self, _name: &str) -> Option<String> {
         None
     }
+
+    /// Called every tick (50 ms), for modules that change over time. Must be instant.
+    fn tick(&mut self) {}
+
+    /// Called with the config at startup and after each reload, for module settings.
+    fn configure(&mut self, _config: &Config) {}
 }
 
 /// Holds every available module, looked up by name.
@@ -45,6 +61,10 @@ impl Registry {
             Box::new(spotify::Spotify::start()) as Box<dyn Module>,
             Box::new(discord::Discord::start()),
             Box::new(shell::Shell),
+            Box::new(tools::timer::Timer::default()),
+            Box::new(tools::stopwatch::Stopwatch::default()),
+            Box::new(tools::pomodoro::Pomodoro::default()),
+            Box::new(tools::counter::Counter::load()),
         ])
     }
 
@@ -63,5 +83,13 @@ impl Registry {
 
     pub fn value(&self, module: &str, name: &str) -> Option<String> {
         self.modules.get(module)?.value(name)
+    }
+
+    pub fn tick(&mut self) {
+        self.modules.values_mut().for_each(|m| m.tick());
+    }
+
+    pub fn configure(&mut self, config: &Config) {
+        self.modules.values_mut().for_each(|m| m.configure(config));
     }
 }

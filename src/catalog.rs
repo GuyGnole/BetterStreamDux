@@ -37,6 +37,8 @@ pub enum Arg {
     Folder,
     /// A numeric id, e.g. a Discord channel id.
     Id,
+    /// A duration in minutes, 1 to 1440.
+    Minutes,
 }
 
 pub struct ValueInfo {
@@ -145,6 +147,15 @@ impl ModuleInfo {
                 page.parse::<u8>()
                     .with_context(|| format!("bad page number '{page}'"))?;
             }
+            (Arg::Minutes, Some(minutes)) => {
+                let minutes: u32 = minutes
+                    .parse()
+                    .with_context(|| format!("'{minutes}' is not a number of minutes"))?;
+                ensure!(
+                    (1..=1440).contains(&minutes),
+                    "minutes must be between 1 and 1440"
+                );
+            }
             (Arg::Id, Some(id)) => {
                 ensure!(
                     id.chars().all(|c| c.is_ascii_digit()),
@@ -197,6 +208,9 @@ mod tests {
         let discord = find("discord").unwrap();
         assert!(discord.check_action("join_channel 123").is_ok());
         assert!(discord.check_action("join_channel general").is_err());
+        let timer = find("timer").unwrap();
+        assert!(timer.check_action("start 5").is_ok());
+        assert!(timer.check_action("start 0").is_err());
         let shell = find("shell").unwrap();
         assert!(shell.check_action("notify-send hi").is_ok());
         assert!(shell.check_action(" ").is_err());

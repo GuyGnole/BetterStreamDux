@@ -31,7 +31,8 @@ struct Pressed {
 }
 
 impl Handler {
-    pub fn new(config: Config, modules: Registry) -> Self {
+    pub fn new(config: Config, mut modules: Registry) -> Self {
+        modules.configure(&config);
         Self {
             nav: Navigator::new(config.page_count()),
             brightness: config.brightness,
@@ -53,6 +54,7 @@ impl Handler {
         self.brightness = config.brightness;
         self.long_press = Duration::from_millis(config.long_press_ms);
         self.pressed.clear();
+        self.modules.configure(&config);
         self.config = config;
     }
 
@@ -111,6 +113,7 @@ impl Handler {
 
     /// Call regularly: fires `long_press` for keys held long enough.
     pub fn tick(&mut self, now: Instant) {
+        self.modules.tick();
         let mut due = Vec::new();
         for pressed in self.pressed.values_mut() {
             if let Some(action) = &pressed.button.long_press
