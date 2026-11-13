@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::builtin::{self, DeckAction};
 use crate::config::{Button, Config, ValueRef};
 use crate::modules::Registry;
-use crate::pages::Navigator;
+use crate::pages::{Navigator, View};
 use crate::screen::{self, Screen};
 
 pub struct Handler {
@@ -42,6 +42,20 @@ impl Handler {
         }
     }
 
+    /// Switches to a new config (the file changed), keeping the modules running.
+    pub fn set_config(&mut self, config: Config) {
+        self.nav.set_page_count(config.page_count());
+        if let View::Folder(name) = self.nav.view()
+            && !config.folders().contains(&name)
+        {
+            self.nav.back(); // the open folder was deleted
+        }
+        self.brightness = config.brightness;
+        self.long_press = Duration::from_millis(config.long_press_ms);
+        self.pressed.clear();
+        self.config = config;
+    }
+
     /// What the deck should show right now.
     pub fn screen(&self, clock: &str) -> Screen {
         let values = |v: &ValueRef| self.value(v, clock);
@@ -53,12 +67,7 @@ impl Handler {
         if value.module != builtin::MODULE_NAME {
             return self.modules.value(&value.module, &value.name);
         }
-        match value.name.as_str() {
-            "clock" => Some(clock.to_string()),
-            "page_number" => Some(self.nav.label()),
-            "brightness" => Some(format!("{}%", self.brightness)),
-            _ => None,
-        }
+        builtin::value(&value.name, clock, &self.nav.label(), self.brightness)
     }
 
     pub fn key_down(&mut self, key: u8, now: Instant) {
@@ -159,7 +168,7 @@ mod tests {
 
     impl Module for Recorder {
         fn name(&self) -> &'static str {
-            "rec"
+            "shell" // any action text is valid for the shell module
         }
         fn run(&mut self, action: &str) -> anyhow::Result<()> {
             self.0.borrow_mut().push(action.to_string());
@@ -173,16 +182,16 @@ mod tests {
             long_press_ms = 500
             [[button]]
             key = 0
-            module = "rec"
+            module = "shell"
             short_press = "quick"
             [[button]]
             key = 1
-            module = "rec"
+            module = "shell"
             short_press = "short"
             long_press = "long"
             [[button]]
             key = 2
-            module = "rec"
+            module = "shell"
             while_press = { press = "down", release = "up" }
             [[button]]
             key = 3
@@ -199,7 +208,7 @@ mod tests {
             [[button]]
             page = 2
             key = 2
-            module = "rec"
+            module = "shell"
             short_press = "page2"
             display = "deck:page_number"
             [[button]]
@@ -303,6 +312,25 @@ mod tests {
         assert_eq!(text(&h, 0).as_deref(), Some("f"));
         tap(&mut h, 0);
         assert_eq!(text(&h, 0), None, "back on page 1, key 0 has no text");
+    }
+
+    #[test]
+    fn new_config_keeps_page_when_possible() {
+        let (mut h, _) = setup();
+        tap(&mut h, 3); // page 2
+        h.set_config(Config::parse("pages = 2\nbrightness = 40").unwrap());
+        assert_eq!(h.nav.view(), View::Page(2));
+        assert_eq!(h.screen("00:00").brightness, 40);
+        h.set_config(Config::parse("").unwrap()); // only 1 page left
+        assert_eq!(h.nav.view(), View::Page(1));
+    }
+
+    #[test]
+    fn deleted_folder_is_left() {
+        let (mut h, _) = setup();
+        tap(&mut h, 5); // open folder f
+        h.set_config(Config::parse("").unwrap());
+        assert_eq!(h.nav.view(), View::Page(1));
     }
 
     #[test]

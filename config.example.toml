@@ -1,45 +1,14 @@
-# BetterStreamDux configuration.
-# Keys are numbered 0-14, left to right, top to bottom:
+# BetterStreamDux example configuration, copied to ~/.config/betterstreamdux/config.toml
+# on first run. Edit it with `betterstreamdux-gui` (which rewrites the file without
+# these comments) or by hand: every field is described in the README.
 #
+# Keys are numbered 0-14, left to right, top to bottom:
 #    0  1  2  3  4
 #    5  6  7  8  9
 #   10 11 12 13 14
 
-brightness = 60       # at startup, 10-100
-long_press_ms = 500   # how long a key must be held to count as a long press
-
-# Each [[button]] is one key on one page or folder.
-#
-# Where:
-#   key    = 0-14
-#   page   = 1-5 (default 1)   main pages, the highest page used sets the page count
-#   folder = "name"            instead of page: a single extra page, opened with "open_folder name"
-#
-# Look:
-#   color      = "#RRGGBB"     background
-#   icon       = "path.png"    image, replaces color
-#   label      = "Text"        fixed text
-#
-# Live look, from values published by modules ("module:value"). When a value is
-# unavailable (e.g. Spotify closed), the fixed field above is used instead.
-#   display    = "spotify:title"                text, replaces label
-#   icon_value = "spotify:cover"                image path, replaces icon
-#   color_by   = { value = "spotify:status", colors = { playing = "#1DB954" } }
-#
-# Values: deck:clock, deck:page_number, deck:brightness
-#         spotify:status, title, artist, album, volume, cover
-#         discord:status, muted, deafened, channel
-#
-# Action (needs `module`):
-#   module      = "spotify" | "discord" | "shell" | "deck"
-#   short_press = "..."                               released before long_press_ms
-#   long_press  = "..."                               held for long_press_ms
-#   while_press = { press = "...", release = "..." }  push-to-talk style, cannot be mixed
-#   A key with only short_press fires instantly on press.
-#
-# "deck" actions: next_page, previous_page, go_to_page N, open_folder NAME, back,
-#                 brightness_up, brightness_down
-# Every folder needs a key with the "back" action.
+brightness = 60
+long_press_ms = 500
 
 # ---------- Page 1: Spotify ----------
 

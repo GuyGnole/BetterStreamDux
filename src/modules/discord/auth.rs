@@ -13,7 +13,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
-use crate::modules::paths;
+use crate::paths;
 
 const TOKEN_URL: &str = "https://discord.com/api/oauth2/token";
 /// Must also be listed in your Discord app's `OAuth2` redirects (see README).

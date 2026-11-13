@@ -7,12 +7,20 @@ use std::process::Command;
 use anyhow::{Context, Result};
 
 use super::Module;
+use crate::catalog::{Actions, ModuleInfo};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "shell",
+    description: "Runs any command line",
+    actions: Actions::Command,
+    values: &[],
+};
 
 pub struct Shell;
 
 impl Module for Shell {
     fn name(&self) -> &'static str {
-        "shell"
+        INFO.name
     }
 
     fn run(&mut self, action: &str) -> Result<()> {

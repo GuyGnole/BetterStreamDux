@@ -15,16 +15,49 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 ## Run
 
+Two programs share the config file `~/.config/betterstreamdux/config.toml` (created from
+`config.example.toml` on first run):
+
 ```sh
-cargo run                         # uses ./config.toml
-cargo run -- path/to/config.toml  # or another config file
-RUST_LOG=debug cargo run          # more logs
+cargo run                                # the daemon: drives the Stream Deck
+cargo run --bin betterstreamdux-gui      # the editor window
+cargo run -- path/to/config.toml         # either one accepts another config file
+RUST_LOG=debug cargo run                 # more logs
 ```
 
-## Configure
+Saving in the editor (or editing the file by hand) reloads the running daemon within a
+second. An invalid file is refused and the current config keeps running.
 
-Edit `config.toml` (the comments at its top list every field). Each `[[button]]` is one key
-on one page or folder.
+## Editor
+
+- Left: main pages and folders. Right-click one to rename or delete it.
+- Middle: the 15 keys, drawn exactly like on the deck (live values show sample text).
+  Click a key to edit it, drag a key onto another one to swap them, Delete empties it.
+- Right: the selected key's look (label, color, icon, live values) and action (module,
+  press or hold, and the actions, chosen from lists).
+- The status bar shows config problems as you edit; Save (Ctrl+S) is enabled when the
+  config is valid. Closing with unsaved changes asks first.
+
+## Configure by hand
+
+The config is TOML. Each `[[button]]` is one key on one page or folder:
+
+| Field | Meaning |
+|-------|---------|
+| `key` | 0-14, left to right, top to bottom |
+| `page` | main page 1-5 (default 1) |
+| `folder` | folder name, instead of `page` |
+| `label` | fixed text |
+| `color` | background, `"#RRGGBB"` |
+| `icon` | image file (png/jpg), replaces the color |
+| `display` | live text, e.g. `"spotify:title"`, replaces the label |
+| `icon_value` | live image, e.g. `"spotify:cover"`, replaces the icon |
+| `color_by` | color from a live value: `{ value = "spotify:status", colors = { playing = "#1DB954" } }` |
+| `module` | `deck`, `spotify`, `discord` or `shell` (needed by the triggers) |
+| `short_press`, `long_press`, `while_press` | the actions, see Triggers |
+
+Top-level fields: `brightness` (10-100), `long_press_ms` (default 500), `pages` (number of
+main pages, optional).
 
 **Pages and folders**: up to 5 main pages (`page = 1..5`, default 1). A folder
 (`folder = "name"`) is one extra page opened from a main page with the `open_folder name`
@@ -85,21 +118,26 @@ To get a channel ID for `join_channel ID`: Discord settings → Advanced → ena
 
 ```
 src/
-  main.rs          entry point: load config, connect, event loop
-  config.rs        config.toml format + validation
+  main.rs          the daemon: load config, connect, event loop, reload on change
+  bin/gui.rs       the editor's entry point (code in gui/)
+  lib.rs           shared code used by both programs
+  config.rs        config format, load/save, validation
+  catalog.rs       what each module offers (actions, values), for checks and the editor
+  paths.rs         per-user directories (config, state, cache)
   handler.rs       key down/up -> short/long/while press -> deck or module action
   builtin.rs       the built-in "deck" actions (pages, folders, brightness)
   pages.rs         which page/folder is shown, navigation
   screen.rs        what each key should show right now (pure)
   render.rs        key content -> 72x72 image with text
   deck.rs          Stream Deck hardware (connect, redraw changed keys, read events)
+  gui/             the editor: mod.rs (window), sidebar.rs, grid.rs, inspector.rs,
+                   widgets.rs, edit.rs (page/folder/swap changes)
   modules/
     mod.rs         Module trait + registry
-    paths.rs       per-user directories (cache)
     spotify.rs     one file per application
     discord/       mod.rs (actions, values), ipc.rs (local socket), auth.rs (login)
     shell.rs
-config.toml        your key bindings
+config.example.toml  example key bindings, copied on first run
 assets/fonts/      bundled font (DejaVu Sans Bold, license next to it)
 udev/              permission rule for the device
 ```
@@ -109,8 +147,11 @@ udev/              permission rule for the device
 1. Create `src/modules/<app>.rs` with a struct implementing `Module` (copy `spotify.rs`).
    `run()` performs actions; `value()` returns live values and must be instant, so read
    the application's state in a background thread (see `spotify.rs`).
-2. Add `mod <app>;` in `src/modules/mod.rs` and register it in `Registry::new`.
-3. Bind it in `config.toml`.
+2. Declare its actions and values in a `pub const INFO: ModuleInfo` in the same file:
+   the config check and the editor's dropdowns use it.
+3. In `src/modules/mod.rs`: add `mod <app>;`, register it in `Registry::start_all` and its
+   `INFO` in `INFOS`.
+4. Add it to the module table above.
 
 ## Checks
 

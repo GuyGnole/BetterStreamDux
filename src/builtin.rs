@@ -3,10 +3,32 @@
 
 use anyhow::{Context, Result, bail};
 
+use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, text};
+
 pub const MODULE_NAME: &str = "deck";
 
-/// Live values of the deck, for `display = "deck:..."`.
-pub const VALUES: [&str; 3] = ["clock", "page_number", "brightness"];
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: MODULE_NAME,
+    description: "The Stream Deck itself: pages, folders, brightness",
+    actions: Actions::List(&[
+        action("next_page", "Next main page (wraps around)"),
+        action("previous_page", "Previous main page (wraps around)"),
+        action_with("go_to_page", Arg::Page, "Jump to a main page"),
+        action_with("open_folder", Arg::Folder, "Open a folder"),
+        action("back", "Leave the folder, back to its page"),
+        action("brightness_up", "Brightness +10%"),
+        action("brightness_down", "Brightness -10%"),
+    ]),
+    values: &[
+        text("clock", "Current time, HH:MM", "12:34"),
+        text(
+            "page_number",
+            "Page number like 2/3, or the folder name",
+            "1/2",
+        ),
+        text("brightness", "Brightness, like 60%", "60%"),
+    ],
+};
 
 /// Brightness change per `brightness_up` / `brightness_down`.
 const BRIGHTNESS_STEP: u8 = 10;
@@ -49,6 +71,16 @@ impl DeckAction {
     }
 }
 
+/// The deck's live values, for `display = "deck:..."`.
+pub fn value(name: &str, clock: &str, page_label: &str, brightness: u8) -> Option<String> {
+    match name {
+        "clock" => Some(clock.to_string()),
+        "page_number" => Some(page_label.to_string()),
+        "brightness" => Some(format!("{brightness}%")),
+        _ => None,
+    }
+}
+
 pub fn brightness_up(current: u8) -> u8 {
     current.saturating_add(BRIGHTNESS_STEP).min(BRIGHTNESS_MAX)
 }
@@ -83,6 +115,18 @@ mod tests {
         assert!(DeckAction::parse("go_to_page x").is_err());
         assert!(DeckAction::parse("next_page 2").is_err());
         assert!(DeckAction::parse("fly").is_err());
+    }
+
+    #[test]
+    fn every_catalog_action_parses() {
+        let crate::catalog::Actions::List(actions) = INFO.actions else {
+            panic!("deck actions are a list");
+        };
+        for info in actions {
+            let arg = (info.arg != Arg::None).then_some("1");
+            let action = crate::catalog::join_action(info.name, arg);
+            assert!(DeckAction::parse(&action).is_ok(), "{action}");
+        }
     }
 
     #[test]

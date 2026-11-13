@@ -3,16 +3,20 @@
 //! To add a module:
 //!   1. create `src/modules/<name>.rs` with a struct implementing [`Module`]
 //!   2. add `mod <name>;` below
-//!   3. register it in [`Registry::new`]
+//!   3. register it in [`Registry::start_all`] and its `INFO` in [`INFOS`]
 
 mod discord;
-mod paths;
 mod shell;
 mod spotify;
 
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
+
+use crate::catalog::ModuleInfo;
+
+/// What each module offers (see `catalog.rs`). Add new modules here too.
+pub const INFOS: [&ModuleInfo; 3] = [&spotify::INFO, &discord::INFO, &shell::INFO];
 
 /// Something a Stream Deck key can control.
 pub trait Module {
@@ -35,8 +39,8 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// Every real module. Add new ones here.
-    pub fn new() -> Self {
+    /// Every real module, with their background threads started. Add new ones here.
+    pub fn start_all() -> Self {
         Self::from(vec![
             Box::new(spotify::Spotify::start()) as Box<dyn Module>,
             Box::new(discord::Discord::start()),

@@ -7,7 +7,7 @@ use crate::config::{Button, Config, KEY_COUNT, ValueRef, parse_color};
 use crate::pages::View;
 
 /// What one key looks like. Compared with the previous frame to redraw only changed keys.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct KeyFace {
     pub color: Option<[u8; 3]>,
     pub icon: Option<String>,

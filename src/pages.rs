@@ -69,6 +69,12 @@ impl Navigator {
         self.folder = Some(name.to_string());
     }
 
+    /// After a config change: stays on the current page if it still exists.
+    pub fn set_page_count(&mut self, page_count: u8) {
+        self.page_count = page_count;
+        self.page = self.page.min(page_count);
+    }
+
     pub fn back(&mut self) {
         self.folder = None;
     }

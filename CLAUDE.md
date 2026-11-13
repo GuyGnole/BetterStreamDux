@@ -15,10 +15,12 @@ Rust app controlling an Elgato Stream Deck MK.2 on Fedora (Wayland). See README.
 - Trigger logic (short/long/while press) only in `src/handler.rs`. It takes `now: Instant` as a parameter so tests never sleep.
 - Drawing flow: `handler.screen()` -> `screen::build` (pure, what to show) -> `deck.draw` (diffs, calls `render`). Never draw from elsewhere.
 - Built-in deck actions (pages, folders, brightness): parse in `src/builtin.rs`, execute in `handler.rs`, validate in `config.rs`.
-- One application = one file in `src/modules/`, implementing the `Module` trait. Register it in `Registry::new`.
+- Two programs, one library: `src/main.rs` (daemon, owns the deck) and `src/bin/gui.rs` (editor, never touches the hardware). Shared code lives in the lib (`src/lib.rs`).
+- One application = one file in `src/modules/`, implementing the `Module` trait, with a `pub const INFO: ModuleInfo` (actions + values). Register it in `Registry::start_all` and `INFOS`. Keep `INFO` and the module's parsing in sync (there is a test per module).
+- GUI: one file per panel in `src/gui/`. Config changes touching several buttons go in `src/gui/edit.rs` as plain tested functions, not in UI code. Widgets only write a field when the user changes it.
 - `Module::value()` is called every 50 ms tick: never block in it. Slow reads (D-Bus, sockets, HTTP) go in the module's background thread, shared through `Arc<Mutex<..>>`.
 - Document each module's actions and values in its `//!` header and in the README table.
-- New config fields go in `src/config.rs`, with an example in `config.toml`.
+- New config fields go in `src/config.rs` (with `skip_serializing_if` for options), an editor input in `src/gui/inspector.rs`, and a line in the README field table.
 - New module: update the module table in README.md.
 
 ## Before finishing a task

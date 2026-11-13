@@ -24,6 +24,32 @@ use serde_json::{Value, json};
 use self::auth::{Credentials, Token};
 use self::ipc::Ipc;
 use super::Module;
+use crate::catalog::{Actions, Arg, ModuleInfo, action, action_with, state, text};
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "discord",
+    description: "Discord voice, through Discord's local RPC (one-time setup, see README)",
+    actions: Actions::List(&[
+        action("mute", "Mute your microphone"),
+        action("unmute", "Unmute your microphone"),
+        action("toggle_mute", "Mute / unmute"),
+        action("deafen", "Deafen (mute what you hear)"),
+        action("undeafen", "Undeafen"),
+        action("toggle_deafen", "Deafen / undeafen"),
+        action_with("join_channel", Arg::Id, "Join a voice channel by id"),
+        action("leave_channel", "Leave the voice channel"),
+    ]),
+    values: &[
+        state(
+            "status",
+            "Connection to Discord",
+            &["connected", "authorizing", "disconnected"],
+        ),
+        state("muted", "Microphone muted", &["true", "false"]),
+        state("deafened", "Deafened", &["true", "false"]),
+        text("channel", "Current voice channel name", "General"),
+    ],
+};
 
 type Values = Mutex<HashMap<String, String>>;
 
@@ -52,7 +78,7 @@ impl Discord {
 
 impl Module for Discord {
     fn name(&self) -> &'static str {
-        "discord"
+        INFO.name
     }
 
     fn run(&mut self, action: &str) -> Result<()> {
@@ -361,6 +387,18 @@ mod tests {
         );
         assert!(Command::parse("join_channel general").is_err());
         assert!(Command::parse("fly").is_err());
+    }
+
+    #[test]
+    fn every_catalog_action_parses() {
+        let Actions::List(actions) = INFO.actions else {
+            panic!("discord actions are a list");
+        };
+        for info in actions {
+            let arg = (info.arg != Arg::None).then_some("123");
+            let action = crate::catalog::join_action(info.name, arg);
+            assert!(Command::parse(&action).is_ok(), "{action}");
+        }
     }
 
     #[test]

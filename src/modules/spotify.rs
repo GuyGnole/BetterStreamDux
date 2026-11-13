@@ -20,7 +20,38 @@ use zbus::blocking::Connection;
 use zbus::proxy::CacheProperties;
 use zbus::zvariant::OwnedValue;
 
-use super::{Module, paths};
+use super::Module;
+use crate::catalog::{Actions, ModuleInfo, action, image, state, text};
+use crate::paths;
+
+pub const INFO: ModuleInfo = ModuleInfo {
+    name: "spotify",
+    description: "Spotify playback, through MPRIS (no account needed)",
+    actions: Actions::List(&[
+        action("play_pause", "Play or pause"),
+        action("play", "Play"),
+        action("pause", "Pause"),
+        action("next", "Next track"),
+        action("previous", "Previous track"),
+        action("stop", "Stop"),
+        action("volume_up", "Spotify volume +10%"),
+        action("volume_down", "Spotify volume -10%"),
+        action("seek_forward", "Skip forward 10 s"),
+        action("seek_back", "Skip back 10 s"),
+    ]),
+    values: &[
+        state(
+            "status",
+            "Playback status",
+            &["playing", "paused", "stopped"],
+        ),
+        text("title", "Track title", "Song title"),
+        text("artist", "Artist(s)", "Artist"),
+        text("album", "Album", "Album"),
+        text("volume", "Spotify volume, like 60%", "60%"),
+        image("cover", "Album cover image"),
+    ],
+};
 
 /// How often the background thread reads Spotify's state.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -70,7 +101,7 @@ impl Spotify {
 
 impl Module for Spotify {
     fn name(&self) -> &'static str {
-        "spotify"
+        INFO.name
     }
 
     fn run(&mut self, action: &str) -> Result<()> {
