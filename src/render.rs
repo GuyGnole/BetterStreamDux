@@ -3,10 +3,11 @@
 //!
 //! Layout: symbol alone -> big and centered; text alone -> centered, wrapped;
 //! both -> symbol in the top part, text (smaller) underneath.
+//! A pressed key is drawn smaller on black, so it looks pushed in.
 
 use ab_glyph::{Font, FontRef, OutlinedGlyph, PxScale, ScaleFont, point};
 use anyhow::{Context, Result};
-use image::{DynamicImage, Rgb, RgbImage, imageops::FilterType};
+use image::{DynamicImage, Rgb, RgbImage, imageops, imageops::FilterType};
 
 use crate::icons;
 use crate::screen::KeyFace;
@@ -40,6 +41,8 @@ const UNDER_SYMBOL: Area = Area {
 };
 const SYMBOL_ALONE: f32 = 46.0;
 const SYMBOL_ABOVE_TEXT: f32 = 32.0;
+/// Side of a pressed key's picture, in pixels (the key is 72).
+const PRESSED_SIZE: u32 = 60;
 
 pub fn render(face: &KeyFace) -> Result<DynamicImage> {
     let mut image = match (&face.icon, face.color) {
@@ -59,7 +62,19 @@ pub fn render(face: &KeyFace) -> Result<DynamicImage> {
         (None, Some(text)) => draw_text(&mut image, text, &FULL),
         (None, None) => {}
     }
+    if face.pressed {
+        image = shrink(&image);
+    }
     Ok(DynamicImage::ImageRgb8(image))
+}
+
+/// The whole picture scaled down to `PRESSED_SIZE`, centered on black.
+fn shrink(image: &RgbImage) -> RgbImage {
+    let small = imageops::resize(image, PRESSED_SIZE, PRESSED_SIZE, FilterType::Triangle);
+    let mut out = RgbImage::new(KEY_SIZE, KEY_SIZE);
+    let offset = i64::from((KEY_SIZE - PRESSED_SIZE) / 2);
+    imageops::replace(&mut out, &small, offset, offset);
+    out
 }
 
 /// Draws an icon from the icon font, centered horizontally around `center_y`.
@@ -215,6 +230,22 @@ mod tests {
         });
         assert!(both.iter().any(|&y| y < 36), "symbol in the top half");
         assert!(both.iter().any(|&y| y > 50), "text at the bottom");
+    }
+
+    #[test]
+    fn pressed_key_is_smaller() {
+        let face = KeyFace {
+            color: Some([255, 0, 0]),
+            pressed: true,
+            ..KeyFace::default()
+        };
+        let image = render(&face).unwrap().to_rgb8();
+        assert_eq!(image.get_pixel(0, 0).0, [0, 0, 0], "black border");
+        assert_eq!(
+            image.get_pixel(36, 36).0,
+            [255, 0, 0],
+            "color in the middle"
+        );
     }
 
     #[test]

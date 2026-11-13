@@ -57,7 +57,7 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     ui.add_space(16.0);
 
     let values = |value: &ValueRef| preview_value(&ed.config, &ed.view, value);
-    let screen = screen::build(&ed.config, &ed.view, ed.config.brightness, &values);
+    let screen = screen::build(&ed.config, &ed.view, ed.config.brightness, &[], &values);
     let mut clicked = None;
     let mut swap = None;
     let mut dropped = None;

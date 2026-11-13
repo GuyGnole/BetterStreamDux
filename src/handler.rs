@@ -1,6 +1,8 @@
 //! Turns raw key down/up events into triggers (short press, long press, while press)
 //! and runs the matching action: built-in `deck` actions here, others in `modules/`.
 //!
+//! Also tracks which keys look pushed in on screen.
+//!
 //! Time is passed in as `now` so the logic can be tested without waiting.
 
 use std::collections::HashMap;
@@ -20,6 +22,24 @@ pub struct Handler {
     long_press: Duration,
     /// Keys currently held down.
     pressed: HashMap<u8, Pressed>,
+    /// Keys drawn pushed in (held, or tapped a moment ago).
+    press_looks: HashMap<u8, PressLook>,
+}
+
+/// A quick tap still looks pushed in this long, so every press is visible.
+const MIN_PRESS_LOOK: Duration = Duration::from_millis(120);
+
+struct PressLook {
+    /// Only shown on this view: after a page change, the key under the finger is another button.
+    view: View,
+    since: Instant,
+    held: bool,
+}
+
+impl PressLook {
+    fn visible(&self, now: Instant) -> bool {
+        self.held || now.saturating_duration_since(self.since) < MIN_PRESS_LOOK
+    }
 }
 
 struct Pressed {
@@ -38,6 +58,7 @@ impl Handler {
             brightness: config.brightness,
             long_press: Duration::from_millis(config.long_press_ms),
             pressed: HashMap::new(),
+            press_looks: HashMap::new(),
             modules,
             config,
         }
@@ -54,14 +75,22 @@ impl Handler {
         self.brightness = config.brightness;
         self.long_press = Duration::from_millis(config.long_press_ms);
         self.pressed.clear();
+        self.press_looks.clear();
         self.modules.configure(&config);
         self.config = config;
     }
 
     /// What the deck should show right now.
-    pub fn screen(&self, clock: &str) -> Screen {
+    pub fn screen(&self, clock: &str, now: Instant) -> Screen {
+        let view = self.nav.view();
+        let pressed: Vec<u8> = self
+            .press_looks
+            .iter()
+            .filter(|(_, look)| look.view == view && look.visible(now))
+            .map(|(key, _)| *key)
+            .collect();
         let values = |v: &ValueRef| self.value(v, clock);
-        screen::build(&self.config, &self.nav.view(), self.brightness, &values)
+        screen::build(&self.config, &view, self.brightness, &pressed, &values)
     }
 
     /// A live value: built-in for "deck:...", otherwise asked to the module.
@@ -79,6 +108,12 @@ impl Handler {
             log::debug!("key {key} has no binding");
             return;
         };
+        let look = PressLook {
+            view: self.nav.view(),
+            since: now,
+            held: true,
+        };
+        self.press_looks.insert(key, look);
         if let Some(while_press) = &button.while_press {
             self.run_all(&while_press.press);
         } else if button.long_press.is_empty() {
@@ -97,6 +132,9 @@ impl Handler {
     }
 
     pub fn key_up(&mut self, key: u8) {
+        if let Some(look) = self.press_looks.get_mut(&key) {
+            look.held = false;
+        }
         let Some(pressed) = self.pressed.remove(&key) else {
             return;
         };
@@ -108,9 +146,22 @@ impl Handler {
         }
     }
 
+    /// The deck was unplugged: no key can be released anymore. Runs the release of
+    /// `while_press` keys (so nothing stays "held"), forgets the others.
+    pub fn release_all(&mut self) {
+        let held: Vec<Pressed> = self.pressed.drain().map(|(_, p)| p).collect();
+        for pressed in held {
+            if let Some(while_press) = &pressed.button.while_press {
+                self.run_all(&while_press.release);
+            }
+        }
+        self.press_looks.clear();
+    }
+
     /// Call regularly: lets modules update, and fires `long_press` for keys held long enough.
     pub fn tick(&mut self, now: Instant) {
         self.modules.tick();
+        self.press_looks.retain(|_, look| look.visible(now));
         let mut due = Vec::new();
         for pressed in self.pressed.values_mut() {
             if !pressed.button.long_press.is_empty()
@@ -237,7 +288,7 @@ mod tests {
 
     /// Text shown on `key` right now.
     fn text(h: &Handler, key: usize) -> Option<String> {
-        h.screen("00:00").keys[key].text.clone()
+        h.screen("00:00", Instant::now()).keys[key].text.clone()
     }
 
     fn tap(h: &mut Handler, key: u8) {
@@ -326,7 +377,7 @@ mod tests {
         tap(&mut h, 3); // page 2
         h.set_config(Config::parse("pages = 2\nbrightness = 40").unwrap());
         assert_eq!(h.nav.view(), View::Page(2));
-        assert_eq!(h.screen("00:00").brightness, 40);
+        assert_eq!(h.screen("00:00", Instant::now()).brightness, 40);
         h.set_config(Config::parse("").unwrap()); // only 1 page left
         assert_eq!(h.nav.view(), View::Page(1));
     }
@@ -370,9 +421,52 @@ mod tests {
     }
 
     #[test]
+    fn pressed_key_looks_pushed_in_until_released() {
+        let (mut h, _) = setup();
+        let t = Instant::now();
+        h.key_down(1, t);
+        assert!(h.screen("", ms(t, 1000)).keys[1].pressed, "held");
+        h.key_up(1);
+        h.tick(ms(t, 1000));
+        assert!(!h.screen("", ms(t, 1000)).keys[1].pressed, "released");
+    }
+
+    #[test]
+    fn quick_tap_stays_visible_a_moment() {
+        let (mut h, _) = setup();
+        let t = Instant::now();
+        h.key_down(0, t);
+        h.key_up(0);
+        assert!(h.screen("", ms(t, 50)).keys[0].pressed);
+        assert!(!h.screen("", ms(t, 200)).keys[0].pressed);
+    }
+
+    #[test]
+    fn page_change_leaves_the_press_behind() {
+        let (mut h, _) = setup();
+        let t = Instant::now();
+        h.key_down(2, t); // while_press on page 1
+        tap(&mut h, 3); // page 2 has another button on key 2
+        assert!(!h.screen("", t).keys[2].pressed);
+    }
+
+    #[test]
+    fn unplugging_releases_held_keys_once() {
+        let (mut h, log) = setup();
+        let t = Instant::now();
+        h.key_down(2, t); // while_press
+        h.key_down(1, t); // short/long press: nothing runs
+        h.release_all();
+        h.key_up(2); // stale release after reconnect: ignored
+        h.tick(ms(t, 1000));
+        assert_eq!(*log.borrow(), ["down", "up"]);
+        assert!(!h.screen("", t).keys[2].pressed);
+    }
+
+    #[test]
     fn brightness_up_changes_screen() {
         let (mut h, _) = setup();
         tap(&mut h, 4);
-        assert_eq!(h.screen("00:00").brightness, 70);
+        assert_eq!(h.screen("00:00", Instant::now()).brightness, 70);
     }
 }

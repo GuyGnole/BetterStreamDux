@@ -1,0 +1,17 @@
+# Runs the BetterStreamDux daemon in your desktop session. It waits for the Stream Deck
+# and handles unplug/replug by itself. User service (not system): Spotify, Discord and
+# shell actions need your session (D-Bus, Wayland).
+# Install: see "Run as a service" in README.md.
+[Unit]
+Description=BetterStreamDux (Stream Deck MK.2)
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.cargo/bin/betterstreamdux
+# Only fails on a broken config at startup or a crash: try again a bit later.
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

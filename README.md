@@ -28,6 +28,23 @@ RUST_LOG=debug cargo run                 # more logs
 Saving in the editor (or editing the file by hand) reloads the running daemon within a
 second. An invalid file is refused and the current config keeps running.
 
+
+## Run as a service
+
+The daemon can run in the background from login. It waits for the deck, and you can
+unplug and plug it back at any time (modules keep running meanwhile).
+
+```sh
+cargo install --path .                   # installs both programs in ~/.cargo/bin
+mkdir -p ~/.config/systemd/user
+cp systemd/betterstreamdux.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now betterstreamdux
+
+journalctl --user -u betterstreamdux -f  # logs
+systemctl --user restart betterstreamdux # after a new `cargo install`
+```
+
 ## Editor
 
 - Left: "All pages" (keys shared by every page, like navigation), the main pages and
@@ -188,6 +205,7 @@ src/
 config.example.toml  example key bindings, copied on first run
 assets/fonts/      bundled fonts (DejaVu Sans Bold for text, Noto Emoji for icons; licenses next to them)
 udev/              permission rule for the device
+systemd/           user service to run the daemon in the background
 ```
 
 ## Add a module

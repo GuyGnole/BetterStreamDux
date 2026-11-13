@@ -16,6 +16,8 @@ pub struct KeyFace {
     /// Icon glyph from the bundled icon font.
     pub symbol: Option<char>,
     pub text: Option<String>,
+    /// Key held down: drawn smaller, so it looks pushed in.
+    pub pressed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,12 +29,22 @@ pub struct Screen {
 /// Looks up a live value such as "spotify:title". `None` when unavailable.
 pub type Values<'a> = dyn Fn(&ValueRef) -> Option<String> + 'a;
 
-pub fn build(config: &Config, view: &View, brightness: u8, values: &Values) -> Screen {
+/// `pressed`: keys to draw pushed in (empty keys never are).
+pub fn build(
+    config: &Config,
+    view: &View,
+    brightness: u8,
+    pressed: &[u8],
+    values: &Values,
+) -> Screen {
     let keys = (0..KEY_COUNT)
         .map(|key| {
             config
                 .shown_button(view, key)
-                .map_or_else(KeyFace::default, |button| face(button, values))
+                .map_or_else(KeyFace::default, |button| KeyFace {
+                    pressed: pressed.contains(&key),
+                    ..face(button, values)
+                })
         })
         .collect();
     Screen { brightness, keys }
@@ -62,6 +74,7 @@ pub fn face(button: &Button, values: &Values) -> KeyFace {
         icon,
         symbol: symbol.and_then(|s| icons::glyph(&s)),
         text,
+        pressed: false,
     }
 }
 
@@ -114,14 +127,14 @@ mod tests {
     fn shows_only_current_view_with_live_text() {
         let config = Config::parse(CONFIG).unwrap();
 
-        let page = build(&config, &View::Page(1), 60, &values(true));
+        let page = build(&config, &View::Page(1), 60, &[], &values(true));
         assert_eq!(page.keys[0].text.as_deref(), Some("12:34"));
         assert_eq!(page.keys[1].text.as_deref(), Some("Folder"));
         assert_eq!(page.keys[1].symbol, Some('📁'));
         assert_eq!(page.keys[1].color, Some([255, 0, 0]));
         assert_eq!(page.keys[3], KeyFace::default());
 
-        let folder = build(&config, &View::Folder("f".into()), 60, &values(true));
+        let folder = build(&config, &View::Folder("f".into()), 60, &[], &values(true));
         assert_eq!(folder.keys[0].text.as_deref(), Some("f"));
         assert_eq!(folder.keys[1], KeyFace::default());
     }
@@ -130,25 +143,27 @@ mod tests {
     fn state_look_then_live_values_then_fixed_fields() {
         let config = Config::parse(CONFIG).unwrap();
 
-        let playing = build(&config, &View::Page(1), 60, &values(true));
+        let playing = build(&config, &View::Page(1), 60, &[], &values(true));
         assert_eq!(
             playing.keys[2],
             KeyFace {
                 color: Some([0, 255, 0]),
                 icon: Some("cover.jpg".into()),
                 symbol: Some('⏸'),
-                text: Some("Song".into())
+                text: Some("Song".into()),
+                pressed: false
             }
         );
 
-        let closed = build(&config, &View::Page(1), 60, &values(false));
+        let closed = build(&config, &View::Page(1), 60, &[], &values(false));
         assert_eq!(
             closed.keys[2],
             KeyFace {
                 color: Some([0, 0, 0]),
                 icon: Some("default.png".into()),
                 symbol: Some('▶'),
-                text: Some("Spotify".into())
+                text: Some("Spotify".into()),
+                pressed: false
             }
         );
     }
