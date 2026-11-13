@@ -30,9 +30,12 @@ second. An invalid file is refused and the current config keeps running.
 
 ## Editor
 
-- Left: main pages and folders. Right-click one to rename or delete it.
+- Left: "All pages" (keys shared by every page, like navigation), the main pages and
+  the folders. Right-click a page or folder to rename or delete it.
 - Middle: the 15 keys, drawn exactly like on the deck (live values show sample text).
   Click a key to edit it, drag a key onto another one to swap them, Delete empties it.
+  Keys coming from "All pages" are marked "shared": edit them for all pages, or replace
+  them on one page only.
 - Right: the selected key's look (label, color, icon, live values) and action (module,
   press or hold, and the actions, chosen from lists).
 - The status bar shows config problems as you edit; Save (Ctrl+S) is enabled when the
@@ -47,6 +50,7 @@ The config is TOML. Each `[[button]]` is one key on one page or folder:
 | `key` | 0-14, left to right, top to bottom |
 | `page` | main page 1-5 (default 1) |
 | `folder` | folder name, instead of `page` |
+| `shared` | `true`: shown on every main page (not in folders), instead of `page`. A page's own key at the same place wins |
 | `label` | fixed text |
 | `color` | background, `"#RRGGBB"` |
 | `icon` | image file (png/jpg), replaces the color |

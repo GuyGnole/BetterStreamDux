@@ -24,10 +24,13 @@ pub struct Screen {
 pub type Values<'a> = dyn Fn(&ValueRef) -> Option<String> + 'a;
 
 pub fn build(config: &Config, view: &View, brightness: u8, values: &Values) -> Screen {
-    let mut keys = vec![KeyFace::default(); usize::from(KEY_COUNT)];
-    for button in config.buttons.iter().filter(|b| b.view() == *view) {
-        keys[usize::from(button.key)] = face(button, values);
-    }
+    let keys = (0..KEY_COUNT)
+        .map(|key| {
+            config
+                .shown_button(view, key)
+                .map_or_else(KeyFace::default, |button| face(button, values))
+        })
+        .collect();
     Screen { brightness, keys }
 }
 

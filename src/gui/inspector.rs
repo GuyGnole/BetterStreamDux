@@ -20,6 +20,10 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| ui.weak("Select a key to edit it."));
         return;
     };
+    if ed.config.shows_shared(&ed.view, key) {
+        inherited_key(ed, ui, key);
+        return;
+    }
     let original = ed.config.button(&ed.view, key).cloned();
     let mut button = original
         .clone()
@@ -38,6 +42,11 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
             }
         });
     });
+    if matches!(ed.view, View::Page(_)) && ed.config.button(&View::Shared, key).is_some() {
+        ui.weak(
+            "Replaces the key from \"All pages\" on this page. Clear it to show that key again.",
+        );
+    }
     ui.separator();
     egui::ScrollArea::vertical().show(ui, |ui| {
         egui::CollapsingHeader::new("Look")
@@ -57,6 +66,28 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
         if !button.is_empty() {
             ed.config.buttons.push(button);
         }
+    }
+}
+
+/// A page key showing the key from "All pages": edit that one, or replace it here.
+fn inherited_key(ed: &mut Editor, ui: &mut egui::Ui, key: u8) {
+    ui.heading(format!("Key {key}"));
+    ui.separator();
+    ui.label("This key comes from \"All pages\": it is the same on every page.");
+    ui.add_space(8.0);
+    if ui.button("Edit it for all pages").clicked() {
+        ed.view = View::Shared; // keep the key selected
+    }
+    if ui.button("Replace it on this page only").clicked()
+        && let (View::Page(page), Some(shared)) = (&ed.view, ed.config.button(&View::Shared, key))
+    {
+        // Start from a copy, so only the differences need changing.
+        let copy = Button {
+            shared: false,
+            page: Some(*page),
+            ..shared.clone()
+        };
+        ed.config.buttons.push(copy);
     }
 }
 

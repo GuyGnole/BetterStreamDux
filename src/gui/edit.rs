@@ -22,9 +22,7 @@ pub fn add_page(config: &mut Config) -> Option<u8> {
 /// actions follow them; the ones pointing at the deleted page are removed.
 pub fn delete_page(config: &mut Config, page: u8) {
     let count = config.page_count();
-    config
-        .buttons
-        .retain(|b| b.folder.is_some() || b.page.unwrap_or(1) != page);
+    config.buttons.retain(|b| b.view() != View::Page(page));
     for button in &mut config.buttons {
         if let Some(p) = button.page
             && p > page
@@ -167,6 +165,18 @@ mod tests {
             config.button(&View::Page(2), 0).is_some(),
             "page 3's key moved to page 2"
         );
+    }
+
+    #[test]
+    fn deleting_page_1_keeps_shared_keys() {
+        let mut config = Config::parse("pages = 2").unwrap();
+        config.buttons = vec![
+            deck_button(&View::Shared, 14, "next_page"),
+            deck_button(&View::Page(1), 0, "next_page"),
+        ];
+        delete_page(&mut config, 1);
+        assert_eq!(config.buttons.len(), 1);
+        assert!(config.buttons[0].shared);
     }
 
     #[test]

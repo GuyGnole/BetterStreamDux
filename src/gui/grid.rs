@@ -44,8 +44,13 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     ui.heading(match &ed.view {
         View::Page(page) => format!("Page {page}"),
         View::Folder(name) => format!("Folder: {name}"),
+        View::Shared => "All pages".to_string(),
     });
-    ui.weak("Click a key to edit it. Drag a key onto another one to swap them.");
+    if ed.view == View::Shared {
+        ui.weak("Keys set here appear on every page, unless a page has its own key at that place.");
+    } else {
+        ui.weak("Click a key to edit it. Drag a key onto another one to swap them.");
+    }
     ui.add_space(24.0);
 
     let screen = preview(ed);
@@ -57,11 +62,13 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
         egui::Grid::new("keys").spacing([GAP, GAP]).show(ui, |ui| {
             for (key, face) in (0u8..).zip(&screen.keys) {
                 let texture = ed.previews.texture(ui.ctx(), face);
-                let response = key_cell(ui, &texture, ed.selected == Some(key));
+                // Keys inherited from "All pages" are edited there, so they don't move here.
+                let inherited = ed.config.shows_shared(&ed.view, key);
+                let response = key_cell(ui, &texture, ed.selected == Some(key), inherited);
                 if response.clicked() {
                     clicked = Some(key);
                 }
-                if response.dragged() {
+                if response.dragged() && !inherited {
                     response.dnd_set_drag_payload(key);
                 }
                 if let Some(from) = response.dnd_release_payload::<u8>() {
@@ -87,7 +94,12 @@ pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     ui.ctx().request_repaint_after(Duration::from_secs(10));
 }
 
-fn key_cell(ui: &mut egui::Ui, texture: &egui::TextureHandle, selected: bool) -> egui::Response {
+fn key_cell(
+    ui: &mut egui::Ui,
+    texture: &egui::TextureHandle,
+    selected: bool,
+    inherited: bool,
+) -> egui::Response {
     let image = egui::Image::new(texture)
         .fit_to_exact_size(egui::vec2(KEY_PX, KEY_PX))
         .corner_radius(12.0)
@@ -111,7 +123,28 @@ fn key_cell(ui: &mut egui::Ui, texture: &egui::TextureHandle, selected: bool) ->
             egui::StrokeKind::Outside,
         );
     }
+    if inherited {
+        badge(ui, response.rect, "shared");
+        return response.on_hover_text("Same on every page: edit it in \"All pages\"");
+    }
     response
+}
+
+/// Small label in a key's top-left corner.
+fn badge(ui: &egui::Ui, key: egui::Rect, text: &str) {
+    let rect = egui::Rect::from_min_size(
+        key.left_top() + egui::vec2(6.0, 6.0),
+        egui::vec2(48.0, 17.0),
+    );
+    ui.painter()
+        .rect_filled(rect, 4.0, egui::Color32::from_black_alpha(170));
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(11.0),
+        egui::Color32::from_gray(225),
+    );
 }
 
 /// The keys of the current view, with sample text for module values
@@ -120,6 +153,7 @@ fn preview(ed: &Editor) -> Screen {
     let page_label = match &ed.view {
         View::Page(page) => format!("{page}/{}", ed.config.page_count()),
         View::Folder(name) => name.clone(),
+        View::Shared => format!("1/{}", ed.config.page_count()),
     };
     let clock = chrono::Local::now().format("%H:%M").to_string();
     let values = |value: &ValueRef| -> Option<String> {

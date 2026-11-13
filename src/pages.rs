@@ -8,6 +8,9 @@
 pub enum View {
     Page(u8),
     Folder(String),
+    /// Keys shown on every main page (a page's own key at the same place wins).
+    /// Never shown by itself on the deck; the editor uses it to edit those keys.
+    Shared,
 }
 
 pub struct Navigator {

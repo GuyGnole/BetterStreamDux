@@ -9,6 +9,13 @@ use crate::pages::View;
 pub fn show(ed: &mut Editor, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     ui.heading("Pages");
+    let shared = entry(ui, ed.view == View::Shared, "All pages");
+    if shared
+        .on_hover_text("Keys shown on every page, like page navigation")
+        .clicked()
+    {
+        ed.show_view(View::Shared);
+    }
     let count = ed.config.page_count();
     for page in 1..=count {
         let view = View::Page(page);

@@ -140,16 +140,20 @@ key = 9
 display = "discord:status"
 color = "#2B2D31"
 
-# ---------- Navigation bar (bottom row, repeated on each page) ----------
+# ---------- All pages: navigation bar (bottom row) ----------
+# `shared = true` keys appear on every page, unless a page has its own key there.
 
 [[button]]
+shared = true
 key = 10
 module = "deck"
 short_press = "previous_page"
 label = "<"
 color = "#333333"
 
+# Hold to go back to page 1.
 [[button]]
+shared = true
 key = 12
 module = "deck"
 display = "deck:page_number"
@@ -157,30 +161,7 @@ long_press = "go_to_page 1"
 color = "#333333"
 
 [[button]]
-key = 14
-module = "deck"
-short_press = "next_page"
-label = ">"
-color = "#333333"
-
-[[button]]
-page = 2
-key = 10
-module = "deck"
-short_press = "previous_page"
-label = "<"
-color = "#333333"
-
-[[button]]
-page = 2
-key = 12
-module = "deck"
-display = "deck:page_number"
-long_press = "go_to_page 1"
-color = "#333333"
-
-[[button]]
-page = 2
+shared = true
 key = 14
 module = "deck"
 short_press = "next_page"

@@ -71,7 +71,7 @@ impl Handler {
     }
 
     pub fn key_down(&mut self, key: u8, now: Instant) {
-        let Some(button) = self.config.button(&self.nav.view(), key).cloned() else {
+        let Some(button) = self.config.shown_button(&self.nav.view(), key).cloned() else {
             log::debug!("key {key} has no binding");
             return;
         };
@@ -331,6 +331,25 @@ mod tests {
         tap(&mut h, 5); // open folder f
         h.set_config(Config::parse("").unwrap());
         assert_eq!(h.nav.view(), View::Page(1));
+    }
+
+    #[test]
+    fn shared_key_works_on_every_page_but_not_in_folders() {
+        let (mut h, log) = setup();
+        let mut config = h.config.clone();
+        config.buttons.push(Button {
+            module: Some("shell".into()),
+            short_press: Some("shared".into()),
+            ..Button::new(&View::Shared, 9)
+        });
+        h.set_config(config);
+        tap(&mut h, 9); // page 1
+        tap(&mut h, 3); // next page
+        tap(&mut h, 9); // page 2
+        h.nav.go_to_page(1); // page 2 has no navigation key
+        tap(&mut h, 5); // open folder f
+        tap(&mut h, 9); // nothing in the folder
+        assert_eq!(*log.borrow(), ["shared", "shared"]);
     }
 
     #[test]

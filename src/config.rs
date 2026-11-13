@@ -53,6 +53,9 @@ pub struct Button {
     /// Folder name, instead of `page`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// Shown on every main page, instead of `page`/`folder`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shared: bool,
 
     /// Module name, e.g. "spotify", or "deck" for built-in actions. Needed if a trigger is set.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,6 +142,12 @@ pub struct ColorBy {
     pub colors: BTreeMap<String, String>,
 }
 
+// serde's skip_serializing_if passes a reference.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 fn default_brightness() -> u8 {
     60
 }
@@ -150,21 +159,24 @@ fn default_long_press_ms() -> u64 {
 impl Button {
     /// An empty button at `key` in `view`.
     pub fn new(view: &View, key: u8) -> Self {
-        let (page, folder) = match view {
-            View::Page(page) => (Some(*page), None),
-            View::Folder(name) => (None, Some(name.clone())),
+        let (page, folder, shared) = match view {
+            View::Page(page) => (Some(*page), None, false),
+            View::Folder(name) => (None, Some(name.clone()), false),
+            View::Shared => (None, None, true),
         };
         Self {
             key,
             page,
             folder,
+            shared,
             ..Self::default()
         }
     }
 
-    /// The page or folder this button belongs to.
+    /// The page, folder or shared layer this button belongs to.
     pub fn view(&self) -> View {
         match &self.folder {
+            _ if self.shared => View::Shared,
             Some(name) => View::Folder(name.clone()),
             None => View::Page(self.page.unwrap_or(1)),
         }
@@ -250,13 +262,37 @@ impl Config {
     /// The config as TOML text, buttons sorted by page/folder then key.
     pub fn to_toml(&self) -> Result<String> {
         let mut sorted = self.clone();
-        sorted
-            .buttons
-            .sort_by_key(|b| (b.folder.clone(), b.page.unwrap_or(1), b.key));
+        // Shared keys first, then pages, then folders.
+        sorted.buttons.sort_by_key(|b| {
+            let group = if b.shared {
+                0
+            } else if b.folder.is_some() {
+                2
+            } else {
+                1
+            };
+            (group, b.folder.clone(), b.page.unwrap_or(1), b.key)
+        });
         Ok(toml::to_string(&sorted)?)
     }
 
-    /// Returns the button at `key` in `view`, if any.
+    /// The button the deck shows at `key` in `view`: the view's own button, or on a
+    /// main page, the shared one.
+    pub fn shown_button(&self, view: &View, key: u8) -> Option<&Button> {
+        self.button(view, key).or_else(|| match view {
+            View::Page(_) => self.button(&View::Shared, key),
+            View::Folder(_) | View::Shared => None,
+        })
+    }
+
+    /// True if `key` on this main page shows the shared key (the page has none of its own).
+    pub fn shows_shared(&self, view: &View, key: u8) -> bool {
+        matches!(view, View::Page(_))
+            && self.button(view, key).is_none()
+            && self.button(&View::Shared, key).is_some()
+    }
+
+    /// The button defined at `key` in `view` itself, if any (see also `shown_button`).
     pub fn button(&self, view: &View, key: u8) -> Option<&Button> {
         self.buttons
             .iter()
@@ -297,9 +333,10 @@ impl Config {
         }
         let mut seen = HashSet::new();
         for button in &self.buttons {
-            let place = match &button.folder {
-                Some(name) => format!("folder '{name}' key {}", button.key),
-                None => format!("page {} key {}", button.page.unwrap_or(1), button.key),
+            let place = match button.view() {
+                View::Shared => format!("shared key {}", button.key),
+                View::Folder(name) => format!("folder '{name}' key {}", button.key),
+                View::Page(page) => format!("page {page} key {}", button.key),
             };
             ensure!(
                 seen.insert((button.view(), button.key)),
@@ -326,9 +363,10 @@ impl Config {
             "key must be between 0 and {}",
             KEY_COUNT - 1
         );
+        let places = [b.page.is_some(), b.folder.is_some(), b.shared];
         ensure!(
-            b.page.is_none() || b.folder.is_none(),
-            "use either page or folder, not both"
+            places.iter().filter(|&&set| set).count() <= 1,
+            "use only one of page, folder or shared"
         );
         if let Some(page) = b.page {
             ensure!(
@@ -470,6 +508,7 @@ mod tests {
             ("key out of range", OK.replace("key = 0", "key = 15")),
             ("page out of range", format!("{OK}page = 6\n")),
             ("page and folder", format!("{OK}page = 1\nfolder = \"f\"\n")),
+            ("shared and page", format!("{OK}shared = true\npage = 2\n")),
             ("bad color", format!("{OK}color = \"red\"\n")),
             ("unknown field", format!("{OK}action = \"a\"\n")),
             ("unknown module", OK.replace("shell", "fly")),
@@ -563,6 +602,17 @@ mod tests {
         let config = Config::parse(EXAMPLE).unwrap();
         let reloaded = Config::parse(&config.to_toml().unwrap()).unwrap();
         assert_eq!(reloaded.to_toml().unwrap(), config.to_toml().unwrap());
+    }
+
+    #[test]
+    fn page_key_wins_over_shared_key() {
+        let own = OK.replace("short_press = \"a\"", "short_press = \"own\"");
+        let config =
+            Config::parse(&format!("pages = 2\n{OK}shared = true\n{own}page = 2\n")).unwrap();
+        let shown = |page| config.shown_button(&View::Page(page), 0).unwrap();
+        assert!(shown(1).shared, "page 1 has no key 0: the shared one shows");
+        assert_eq!(shown(2).short_press.as_deref(), Some("own"));
+        assert!(config.shown_button(&View::Folder("f".into()), 0).is_none());
     }
 
     #[test]
